@@ -1,0 +1,5 @@
+variant,Precision,Recall,F1,ROC-AUC,PR-AUC,Theft caught in top 10%,PR-AUC (validation)
+A. current (14),0.363,0.366,0.365,0.788,0.332,0.405,0.338
+B. gap-aware (15),0.425,0.363,0.391,0.795,0.366,0.424,0.374
+C. weekly (16),0.391,0.319,0.351,0.788,0.329,0.398,0.334
+D. gap-aware + weekly (17),0.394,0.394,0.394,0.798,0.376,0.435,0.379

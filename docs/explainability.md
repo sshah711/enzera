@@ -1,120 +1,115 @@
 # ENZERA - Explainability write-up
 
-All numbers below come from the running backend (`GET /customers`, `GET /customers/{id}`) for model
-`xgb-20261114-1143`, from `reports/metrics.json`, and from `data/demo/demo_labels.csv` (the true labels of the demo
-customers, which the app never shows). The demo customers come from the 15% demo split, which the model never saw in
-training.
+All numbers below come from the backend (`GET /customers`, `GET /customers/{id}`) running model
+`xgb-20261114-1557` (17 features), from `reports/metrics.json`, and from `data/demo/demo_labels.csv` (the true labels of the
+demo customers, which the app never shows). Demo customers come from the 15% demo split that the model never saw in training.
 
 ## How to read a risk score and its reasons
 
-- **Risk score** = XGBoost's predicted theft probability (0-1). **Risk band**: High if score ≥ the threshold
-  0.673 (tuned for best F1 on the validation split), Medium if ≥ half the threshold (0.337), otherwise Low.
-- **SHAP reasons.** For each customer, XGBoost's built-in TreeSHAP (`booster.predict(..., pred_contribs=True)`)
-  splits the model's output (in log-odds) into one contribution per feature plus a base value:
+- **Risk score** = XGBoost's raw output (0-1), used for ranking. **Risk band**: High if score ≥ the threshold **0.656** (tuned for
+  best F1 on the validation split), Medium if ≥ half the threshold (0.328), otherwise Low.
+- **Estimated probability** = the risk score after **Platt calibration** (a logistic curve fitted on the validation split).
+  Class weights inflate raw scores, so a raw 0.97 corresponds to roughly an 80% real chance of theft. On the test set, calibration
+  lowers the Brier score (mean squared error of probabilities) from 0.122 to **0.065**. We chose Platt over isotonic regression
+  because isotonic's top step claimed 100% based on only 4 validation customers.
+- **SHAP reasons.** For every customer, XGBoost's TreeSHAP (`booster.predict(..., pred_contribs=True)`) splits the model output (in
+  log-odds) into one exact contribution per feature plus a base value:
 
-  `log-odds = base value + SHAP(feature 1) + ... + SHAP(feature 14)`,   `risk = 1 / (1 + e^(-log-odds))`
+  `log-odds = base value + SHAP(feature 1) + ... + SHAP(feature 17)`,   `risk = 1 / (1 + e^(-log-odds))`
 
-  The base value for this model is **0.159 log-odds** (it is not the 8.5% theft rate, because class weights
-  re-balance the training). A positive SHAP value pushes the customer towards theft, a negative one away from it. The app
-  shows the top 3 *positive* contributors as the "reasons". We checked that the contributions add up exactly to the
-  displayed score for all three customers below.
+  The base value is **0.173 log-odds**. Positive contributions push towards theft, negative ones away from it. The app shows the
+  top 3 positive contributions as "reasons", the **full waterfall** of all 17, and a **what-if** simulator that re-scores the customer
+  after changing feature values. We verified that base + contributions reproduce the displayed score exactly for the customers
+  below (an automated test checks this as well).
 
-## Customer 1 - `57531380F73D67943259F07E12498E1A` (highest risk)
+## Customer 1 - `448FE0108C91D70C0E906B7D5AE496E7` (highest risk)
 
-**Risk 0.983 (High), anomaly score 1.00. True label: theft.**
-SHAP reasons: day-to-day variation 228.11 kWh (**+1.75**), missing readings 57% (**+0.61**), average daily consumption
-220.44 kWh (**+0.59**). Other positive contributors: long-term trend (+0.38) and highest daily consumption (+0.26).
-Base 0.159 + all contributions = 4.066 log-odds → 0.983.
+**Risk 0.971 (High), estimated probability 80%, anomaly 0.31. True label: theft.**
+Top reasons: day-to-day variation 13.86 kWh (**+0.63**), missing readings 29% (**+0.49**), long-term trend 0.05 (**+0.42**). Next:
+weekly repetition 0.90 (+0.39), highest daily consumption 60.69 kWh (+0.38), recent vs earlier usage 2.35 (+0.28), largest
+month-to-month drop 65% (+0.12). 15 of 17 contributions are positive. Base 0.173 + contributions = 3.517 log-odds → 0.971.
 
-**What the consumption shows.** This is an extreme consumer: 220 kWh/day on average and a peak of 905 kWh in one day,
-against a demo median of 5.2 kWh/day. It is probably a commercial or industrial connection. Its readings are patchy (57% of days
-missing, with gaps of several months in 2014 and 2015), and its usage swings widely: monthly means range from about 37
-to 645 kWh/day. In 2016 usage first jumps to 494-645 kWh/day and then falls to 109-279 kWh/day, so recent usage is only
-56% of earlier usage. The model has learnt that very large, very variable consumers with patchy meter data are the
-profile most often labelled as theft in SGCC. This customer is also the most anomalous in the demo set (anomaly score capped at
-1.0). It is a sensible first inspection, but the "reason" is a risk *profile*, not proof of tampering.
+**What the consumption shows.** This is the classic theft pattern. In January-June 2014 the customer used 16-24 kWh/day. In July
+2014 usage fell by 65% (24.1 → 8.4 kWh/day) and stayed at only 3-8 kWh/day for about nine months (July 2014 - March 2015).
+Readings then stop for April-December 2015. In 2016 usage is back at 20-57 kWh/day, higher than ever. A sharp, sustained drop
+followed by recovery is what a meter bypass that was later removed would look like. The model captures it mainly through
+variability, trend and recent-vs-earlier usage. Its anomaly score is only moderate (0.31), so the supervised model catches
+something the unsupervised detector does not flag.
 
-## Customer 2 - `448FE0108C91D70C0E906B7D5AE496E7` (second highest risk)
+## Customer 2 - `6FDB63D74BAC34833F2330EC3C897327` (second highest risk)
 
-**Risk 0.963 (High), anomaly score 0.33. True label: theft.**
-SHAP reasons: day-to-day variation 13.86 kWh (**+0.80**), long-term trend of monthly usage 0.05 (**+0.66**), missing
-readings 29% (**+0.33**). Almost every feature pushes upwards here (13 of 14 contributions are positive), including the
-largest month-to-month drop of 65% (+0.10). Base 0.159 + contributions = 3.247 log-odds → 0.963.
+**Risk 0.970 (High), estimated probability 79%, anomaly 0.14. True label: theft.**
+Top reasons: long-term trend 0.03 (**+0.49**), missing readings 30% (**+0.49**), day-to-day variation 7.05 kWh (**+0.43**). Next:
+weekly repetition 0.90 (+0.42), highest daily consumption 33.15 kWh (+0.30), active-reporting share 100% (+0.29). Base 0.173 +
+contributions = 3.461 log-odds → 0.970.
 
-**What the consumption shows.** This customer has the classic theft pattern. In January-June 2014 it used 16-24 kWh/day.
-In July 2014 usage suddenly fell by 65% (24.1 → 8.4 kWh/day) and stayed at only 3-8 kWh/day for about nine months (July 2014 - March 2015).
-Then readings disappear for April-December 2015. In 2016 usage is back at 20-57 kWh/day, higher than ever. A sharp, sustained
-drop followed by a return to (or above) the old level is what we would expect from a meter bypass that was later removed.
-The model captures this mainly through variability and trend rather than the drop feature itself: the 2016 recovery makes
-the trend strongly positive and recent usage 2.35× the earlier level. Its anomaly score (0.33) is only moderate,
-which shows that the supervised model catches theft patterns the unsupervised detector does not flag.
+**What the consumption shows.** The same story as customer 1, slightly earlier. Usage was 18-23 kWh/day in January-March 2014,
+then fell to 6.5 in April and 3.1 in May 2014 (largest monthly drop 63%). It stayed at only 2.8-7.3 kWh/day until February 2015,
+then readings stop until December 2015. In 2016 it is back at 15-25 kWh/day. This customer is very ordinary in feature space
+(anomaly 0.14), which shows again that "abnormal" and "theft" are different questions.
 
-## Customer 3 - `50B1489EA4125827439E4C0E97B28DFC` (low risk)
+## Customer 3 - `F21D74D306C006E021DCF3AFD0D6CE9F` (lowest risk with complete data)
 
-**Risk 0.003 (Low), anomaly score 0.27. True label: normal.** We chose the lowest-risk demo customer with under 10% missing
-data. Several low-risk customers with mostly missing data would be less informative examples.
-The listed "reasons" are tiny: trend 0.01 (+0.06) and low-day share 0% (+0.01), so in practice nothing pushes this customer
-towards theft. The score is driven by strong *negative* contributions: missing readings only 2.4% (**−1.15**), highest daily
-consumption 0.71 kWh (**−1.13**), day-to-day variation 0.10 kWh (**−0.88**), spike share 0% (−0.60). Base 0.159 +
-contributions = −5.803 log-odds → 0.003.
+**Risk 0.0025 (Low), estimated probability 0.06%, anomaly 0.90. True label: normal.** This is the lowest-risk demo customer with
+less than 10% missing readings.
+The score is driven by strong *negative* contributions: highest daily consumption 0.01 kWh (**−1.44**), day-to-day variation 0.00
+(**−1.05**), weekend ratio (−0.74), average consumption 0.00 (−0.71), missing readings 2% (−0.71). Base 0.173 + contributions =
+−5.973 log-odds → 0.0025. The listed "reasons" (weekly repetition +0.18, longest zero run 514 days +0.08) are small and
+outweighed by the negatives.
 
-**What the consumption shows.** A very small, very stable household-type load: monthly means sit at 0.5 kWh/day from January 2014
-to September 2015 and creep up to 0.6-0.7 kWh/day from October 2015 onwards. There are no gaps, spikes, zero runs or drops. Everything about this curve is
-regular, so the model is confident. *Caveat for interpretation:* the reasons list always shows the top positive contributors,
-even when they are negligible. For a low-risk customer, the size of the SHAP values (+0.06 here vs +1.75 for customer 1)
-matters more than the labels.
+**What the consumption shows.** This meter reads **essentially zero for three years** (monthly means 0.0 kWh/day, maximum 0.05 kWh
+on any day). It is labelled normal in SGCC, so it is probably a vacant property or an unused connection. The supervised model is
+confident it is not a thief, because SGCC's caught thieves are mostly larger, variable consumers (see the EDA). Zero usage
+pushes the score *down*. The **Isolation Forest, however, scores it 0.90**, among the most anomalous customers. This is the
+complementary role of the two detectors in one example. For a utility, a meter recording nothing for three years is worth a
+check (a dead meter or a full bypass), even if it does not look like past thieves. *Interpretation caveat:* the reasons list always
+shows the top positive contributors, even when they are small. For low-risk customers, look at the waterfall.
 
 ## Global importance (`reports/shap_importance.png`)
 
-The chart shows the mean absolute SHAP value of each feature over the 6,356 test customers, i.e. how much each feature
-moves the prediction on average, in either direction (values from `reports/metrics.json`):
+Mean absolute SHAP value of each feature over the 6,356 test customers (from `reports/metrics.json`):
 
 | Rank | Feature | Mean \|SHAP\| |
 |---|---|---|
-| 1 | Share of days with missing readings | 0.485 |
-| 2 | Day-to-day variation (kWh) | 0.412 |
-| 3 | Highest daily consumption (kWh) | 0.331 |
-| 4 | Long-term trend of monthly usage | 0.293 |
-| 5 | Variability between months | 0.216 |
-| 6 | Share of days with unusual spikes | 0.210 |
+| 1 | Day-to-day variation (kWh) | 0.363 |
+| 2 | Share of days with missing readings | 0.330 |
+| 3 | Long-term trend of monthly usage | 0.306 |
+| 4 | Highest daily consumption (kWh) | 0.286 |
+| 5 | Variability between months | 0.200 |
+| 6 | Share of the period the meter was reporting *(new)* | 0.199 |
+| 7 | Share of days with unusual spikes | 0.191 |
+| 8 | Relative variability of consumption | 0.185 |
+| 9 | Weekly repetition of the usage pattern *(new)* | 0.178 |
 | ... | ... | ... |
-| 14 | Share of days far below the usual level | 0.103 |
+| 16 | Strength of the day-of-week cycle *(new)* | 0.100 |
+| 17 | Share of days far below the usual level | 0.080 |
 
-**Interpretation.** Data quality (missing readings), consumption magnitude and variability (std, peak), and change over time
-(trend) dominate. Zero-usage and "far below usual" features matter least. This matches the EDA (`notebooks/01_eda.ipynb`):
-in SGCC, theft-labelled customers are on average larger, more variable consumers with more missing data and rising recent
-usage, and zero-usage runs are rare in both classes. Two cautions: (1) importance is not causality. Missing readings may
-reflect faulty or tampered meters, *or* just how SGCC collected the data. (2) `missing_ratio` ranks first in SHAP but only
-8th in single-feature AUC (0.568), because the model uses it mostly *in combination* with other features (for example,
-it pushes strongly downwards for clean, stable customers like customer 3).
+**Interpretation.** Variability, data quality, trend and peak usage dominate, consistent with the EDA. Two of the three features we
+added in notebook 03 rank 6th and 9th. Cautions: (1) importance is not causality. Missing readings may reflect tampering *or* how
+SGCC collected the data. (2) Zero-usage features rank low (zero share 0.106), and as customer 3 shows, zero usage tends to *lower*
+the risk. This matches notebook 04, where synthetic "zero" and "reduced" attacks were rarely detected.
 
 ## Isolation Forest (abnormal consumption)
 
-**What it does.** Isolation Forest builds 300 random trees that repeatedly split the 14-feature space at random cut points.
-Unusual customers get isolated in few splits (short paths), so they receive a high anomaly score. We fit it **only on normal
-customers** from the training split, so "anomalous" means "unlike a typical normal customer". The raw score is rescaled to 0-1
-using the 1st-99th percentile range on the training split (so a few customers sit exactly at 0 or 1). It needs no labels.
+**What it does.** 300 random trees split the 17-feature space at random cut points. Unusual customers are isolated in few splits,
+so they get a high score. It is fitted **only on normal training customers** ("anomalous" = unlike a typical normal customer), and
+the raw score is rescaled to 0-1 using the 1st-99th percentile range of the training split. It needs no labels.
 
-**Results (test split, from `reports/metrics.json`):** ROC-AUC **0.595**, PR-AUC **0.115**, theft caught in the top 10% **16.0%**
-(precision in the top 10%: 13.7%). Random ranking would give PR-AUC ≈ 0.085 and 10%. XGBoost gives 0.332 and 40.5%.
+**Results (test split, `reports/metrics.json`):** ROC-AUC **0.586**, PR-AUC **0.109**, theft caught in the top 10% **13.8%**
+(precision there 11.8%). Random ranking gives ≈ 0.085 and 10%. XGBoost gives 0.376 and 43.5%.
 
-**On the 1,000 demo customers:** risk score and anomaly score are essentially uncorrelated (Spearman 0.001). Median anomaly score is
-0.150 for normal and 0.161 for theft customers. Of the 198 customers with anomaly ≥ 0.5, only 5.1% are thieves, which is
-*below* the 8.5% base rate. The 100 most anomalous customers include 6% thieves, while the 100 highest-risk customers include
-36%.
+**On the 1,000 demo customers:** anomaly and risk are essentially uncorrelated (Spearman −0.039). Median anomaly is 0.175 for normal
+and 0.196 for theft customers. Of the 204 customers with anomaly ≥ 0.5, only 4.4% are thieves, *below* the 8.5% base rate. The 100
+most anomalous include 7% thieves; the 100 highest-risk include 37%.
 
-**What this means and its limits.**
-- Isolation Forest is a weak theft detector on its own: only slightly better than random. "Abnormal" is not the same as "theft".
-  Many normal customers are unusual (holiday homes, businesses, new connections), and many thieves look ordinary.
-- Its value in ENZERA is as a **second, label-free signal**. It can point at strange behaviour that no historical label covers
-  (new theft methods, meter faults, data-collection errors), and it would still work in a new region with no inspection
-  history. It should not be used to rank inspections; the supervised risk score should.
-- It uses the same 14 handcrafted features, so it can only see the kinds of abnormality those features describe. The 0-1 scaling
-  is relative to our training data, not an absolute probability.
+**Meaning and limits.** Isolation Forest is a weak theft *ranker* (barely better than random), because "abnormal" is not "theft".
+Its value is as a second, label-free signal for strange behaviour the labels do not cover, like customer 3's three years of zero
+readings (anomaly 0.90, theft risk 0.0025). It also works in a new region with no inspection history. It uses the same handcrafted
+features and a relative 0-1 scale, so it only sees the kinds of abnormality those features describe.
 
 ## Overall: how good are the High-risk flags?
 
-Using the hidden demo labels: of the 73 High-band demo customers, **31 (42.5%) are thieves**, vs 10.3% in Medium and 4.1% in
-Low. The demo set has 85 thieves in total: 31 are in High, 27 in Medium and 27 in Low. So the model concentrates theft about 5×
-above the base rate in its High band, but about a third of thieves still look normal to it. SHAP explanations make each flag
-checkable by an inspector. They do not make the model more accurate.
+Using the hidden demo labels: of the 80 High-band demo customers, **34 (42.5%) are thieves**, vs 9.8% in Medium and 3.9% in Low.
+The demo set has 85 thieves: 34 in High, 25 in Medium, 26 in Low. So the High band concentrates theft about 5× above the base rate,
+but about 3 in 10 thieves still look normal to the model. SHAP makes every flag checkable; it does not make the model more
+accurate.

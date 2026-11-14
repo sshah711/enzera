@@ -1,6 +1,6 @@
-# ENZERA - Slides outline (12 slides, ~10 minutes)
+# ENZERA - Slides outline (14 slides, ~12 minutes)
 
-Every number comes from `reports/metrics.json`, `reports/experiments.csv` or `docs/explainability.md`.
+Numbers come from `reports/metrics.json` (model `xgb-20261114-1557`), `reports/*.csv` and `docs/explainability.md`.
 Speaker notes are in *italics*.
 
 ---
@@ -9,74 +9,79 @@ Speaker notes are in *italics*.
 **ENZERA: An Explainable AI-Based System for Electricity Theft and Abnormal Consumption Detection**
 - Member A name · Member B name, M.Tech Data Science, Applied Machine Learning
 - Live: enzera.streamlit.app · github.com/sshah711/enzera
-- Visual: app dashboard screenshot as background
+- Visual: dashboard screenshot
 
-## 2. The problem
-- Electricity theft = non-technical losses for utilities
-- Inspectors can visit only a few customers. **Who should they visit first, and why?**
-- Goal: rank customers by theft risk from daily smart-meter data, and explain each flag
-- *Note: the deliverable is a ranked, explained inspection list, not just a classifier.*
+## 2. Problem
+- Theft = non-technical losses; inspectors can visit only a few customers
+- **Who should they visit first, why, and how many visits are enough?**
+- Deliverable: ranked, explained, calibrated inspection list + inspection workflow
 
 ## 3. Data: SGCC
-- 42,372 customers × 1,034 days (Jan 2014 - Oct 2016), labels from inspections
-- **8.53% theft** → accuracy is meaningless (all "normal" = 91.5%)
-- 25.7% readings missing; 22.3% of customers have no data before 2016
+- 42,372 customers × 1,034 days (2014-2016), **8.53% theft**: accuracy is useless
+- 25.7% readings missing; **22.3% of meters have no data before 2016**
 - Split 70 / 15 / 15: train / test / **demo (never seen, shown in the app)**
-- Visual: `eda_class_balance.png` + `eda_missing.png`
+- Visual: `eda_class_balance.png`, `eda_missing.png`
 
 ## 4. EDA insight
-- Theft customers use **more**, not less: median 8.32 vs 5.19 kWh/day, more variable, rising in 2016
-- Zero-usage days rare in both classes
-- Best single feature (`std_daily`) has AUC only 0.705 → need a model that combines features
+- Theft customers use **more**: median 8.32 vs 5.19 kWh/day, more variable, rising in 2016
+- Zero days rare in both classes; best single feature AUC only 0.705
 - Visual: `eda_avg_consumption.png`
 
 ## 5. Method
-- Pipeline: clean (interpolate, clip, 3σ cap) → **14 features** → models → SHAP → API → UI
-- 14 features in 4 groups: level · variability · suspicious low usage · change over time (+ missing data, weekend ratio)
-- Models: Logistic Regression, Random Forest, **XGBoost (main)**, Isolation Forest (unsupervised)
-- Imbalance: `scale_pos_weight` = 10.7; threshold tuned for best F1 on **validation** (0.673)
-- Visual: pipeline diagram from the About page
+- Gap-aware cleaning → **17 features** (level, variability, low usage, trend, weekly pattern, data quality)
+- LR, RF, **XGBoost (main)**, Isolation Forest; class weights 10.7; threshold 0.656 tuned on validation
+- Platt calibration → real probabilities (Brier 0.122 → 0.065)
+- Every change gated by a rule fixed in advance (+0.01 PR-AUC and top-10%, not worse on validation)
 
 ## 6. Results
 | Model | F1 | ROC-AUC | PR-AUC | Theft in top 10% |
 |---|---|---|---|---|
-| Logistic Regression | 0.242 | 0.695 | 0.205 | 25.0% |
-| Random Forest | 0.338 | 0.776 | 0.293 | 36.6% |
-| **XGBoost** | **0.365** | **0.788** | **0.332** | **40.5%** |
-| Isolation Forest | - | 0.595 | 0.115 | 16.0% |
-- Headline: **inspect the top 10% → catch 40.5% of thieves (4× random)**
-- Visual: `roc_pr.png`
+| Logistic Regression | 0.261 | 0.699 | 0.218 | 28.2% |
+| Random Forest | 0.341 | 0.781 | 0.337 | 40.2% |
+| **XGBoost** | **0.394** | **0.798** | **0.376** | **43.5%** |
+| Isolation Forest | - | 0.586 | 0.109 | 13.8% |
+- **Top 10% → 43.5% of thieves (4.3× random)**; top 1% → 76% of visits find a thief
+- Visual: `roc_pr.png` + `confusion_matrix.png`
 
-## 7. Experiments: can we do better?
-- SMOTE: worse (PR-AUC 0.296 vs 0.332)
-- 3 hyperparameter settings: best ties (0.332, bootstrap CI ±0.015) → keep the simpler model
-- Rule fixed before running; nothing qualified
-- Takeaway: limited by features, not tuning
-- Visual: `experiments.png`
+## 7. What improved the model (and what did not)
+- ✅ Gap-aware + weekly features: PR-AUC 0.332 → **0.376** (CI [+0.017, +0.067])
+- ❌ SMOTE (0.296), ❌ hyperparameter tuning (ties at 0.332)
+- *Note: weekly features alone hurt; they only help once gaps are not filled with flat lines.*
 
-## 8. Explainability
-- TreeSHAP: exact contribution of each feature; base + Σ SHAP = model output
-- Example `448FE010…`: risk 0.963, 65% drop July 2014 → 9 months low → recovery (actually theft)
-- Global: missing readings, variability, peak usage, trend matter most
-- Visual: Customer detail screenshot (risk meter + reason cards) + `shap_importance.png`
+## 8. Deep learning
+- 1D-CNN on raw daily series: better on test but **worse on validation** → rejected alone
+- **XGBoost + CNN ensemble: PR-AUC 0.433**, top-10% 46.6% (passes the rule)
+- Not deployed: loses exact SHAP explanations + PyTorch too big for free hosting → future work (ONNX)
 
-## 9. Abnormal consumption (Isolation Forest)
-- Trained on normal customers only; no labels needed
-- Weak for theft (AUC 0.595); uncorrelated with risk (Spearman 0.001)
-- Value: second signal for unusual behaviour (faults, new theft methods)
-- *Note: show honesty here; examiners like it.*
+## 9. Honest limitation: synthetic attacks
+- Injected Jokar-style attacks into 4,471 honest customers
+- Mostly **not** detected (e.g. flat-average attack: median risk 0.174 → 0.082)
+- The model learned **who was caught**, not how theft works → needs rules + retraining
 
-## 10. Product demo flow
-- Dashboard → top customer + SHAP reasons → upload CSV → open & close case → model performance
-- Stack: FastAPI + SQLite (Render, Docker) ↔ Streamlit (Streamlit Cloud); GitHub Actions CI (10 tests + Docker build)
-- Visual: architecture diagram (report Section 8) + live demo
+## 10. Explainability
+- TreeSHAP: base 0.173 + Σ contributions = exact score; waterfall + what-if
+- `448FE010…`: risk 0.97 (80% probability), 65% drop → 9 months low → recovery (actually theft)
+- `F21D74D3…`: zero usage for 3 years → risk 0.0025 but **anomaly 0.90**: the two detectors complement each other
+- Visual: Customer detail waterfall screenshot + `shap_importance.png`
 
-## 11. Limitations and future work
-- Moderate precision/recall (~0.36); a third of demo thieves scored Low; label bias
-- Handcrafted features; interpolated long gaps; SQLite resets on free hosting; cold starts
-- Future: 1D-CNN/LSTM, MLflow registry, retraining from confirmed cases, drift monitoring, PostgreSQL
+## 11. Product
+- 8 pages: dashboard, customer detail (reasons, waterfall, what-if, similar, PDF sheet), upload + drift check,
+  **inspection planner**, cases (roles + audit timeline), **monitoring (PSI)**, performance, about
+- Retraining from confirmed cases with a promotion gate (demo: +80 labels → candidate worse → correctly not promoted)
+- Visual: planner + case timeline screenshots
 
-## 12. Conclusion
-- Explained, ranked inspection list from raw meter data, live and reproducible
-- XGBoost: PR-AUC 0.332, 40.5% of thieves in the top 10%; High band = 42.5% thieves on unseen demo data
+## 12. Architecture and deployment
+- FastAPI + SQLAlchemy (SQLite or **PostgreSQL**) on Render (Docker) ↔ Streamlit Cloud
+- MLflow tracking; GitHub Actions CI: 20 tests (also pass on PostgreSQL 16) + Docker build
+- Visual: architecture diagram (report Section 8)
+
+## 13. Limitations and future work
+- ~0.39 precision/recall; label bias; attack blindness; short histories drift; free-tier resets/cold starts; demo-grade auth
+- Future: deploy the ensemble (ONNX), train with synthetic attacks + self-comparison rules, MLflow registry + scheduled retraining,
+  drift alerts, real user management
+
+## 14. Conclusion
+- Explained, calibrated, ranked inspection list + full workflow, live and reproducible
+- 43.5% of thieves in the top 10%; High band = 42.5% thieves on unseen demo data
+- Rigour: improvements kept only when they held up under fixed rules
 - Thank you · Questions?

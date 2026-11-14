@@ -1,0 +1,4 @@
+model,Precision,Recall,F1,ROC-AUC,PR-AUC,Theft caught in top 10%,PR-AUC (validation)
+"XGBoost, 17 features (deployed)",0.394,0.394,0.394,0.798,0.376,0.435,0.379
+"1D-CNN, raw daily series",0.342,0.512,0.41,0.811,0.391,0.459,0.346
+Ensemble: XGBoost + CNN (rank average),0.414,0.44,0.427,0.831,0.433,0.466,0.404

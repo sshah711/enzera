@@ -80,6 +80,13 @@ html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea, selec
 .step { background:#fff; border:1px solid #E5E9F2; border-radius:14px; padding:.9rem; text-align:center; }
 .step .icon { font-size:1.6rem; } .step .t { font-weight:700; margin-top:.25rem; } .step .d { font-size:.8rem; color:#64748B; }
 
+/* ---------- case timeline ---------- */
+.tl-item { display:flex; gap:.7rem; padding:.55rem 0; border-bottom:1px dashed #E5E9F2; }
+.tl-item:last-child { border-bottom:none; }
+.tl-icon { width:30px; height:30px; flex:0 0 30px; border-radius:50%; background:#EEF2FF; display:grid; place-items:center; }
+.tl-role { font-size:.7rem; background:#F1F5F9; color:#475569; padding:.05rem .45rem; border-radius:999px; }
+.tl-time { font-size:.75rem; color:#64748B; } .tl-note { font-size:.82rem; color:#334155; margin-top:.15rem; font-style:italic; }
+
 /* ---------- widgets ---------- */
 [data-testid="stDataFrame"] { border-radius:14px; overflow:hidden; border:1px solid #E5E9F2; }
 .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
@@ -140,7 +147,11 @@ def pill(band):
     return f'<span class="pill" style="color:{c};background:{c}22;border-color:{c}55">{escape(band)} risk</span>'
 
 
-def risk_card(cid, risk, band, anomaly, threshold):
+def risk_card(cid, risk, band, anomaly, threshold, probability=None):
+    prob_tile = "" if probability is None else (
+        f'<div class="kpi" style="border-top-color:#0EA5E9"><div class="label">Estimated probability</div>'
+        f'<div class="value">{probability:.0%}</div><div class="meter"><span style="width:{probability * 100:.1f}%;'
+        f'background:#0EA5E9"></span></div><div class="sub">calibrated on validation data</div></div>')
     html(f"""<div class="card">
 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:.6rem;align-items:center">
   <div><div style="font-size:.78rem;color:#64748B;font-weight:600">CUSTOMER</div>
@@ -152,6 +163,7 @@ def risk_card(cid, risk, band, anomaly, threshold):
     <div class="meter"><span style="width:{risk * 100:.1f}%"></span></div><div class="sub">High-risk threshold {threshold:.2f}</div></div>
   <div class="kpi" style="border-top-color:#7C3AED"><div class="label">Anomaly score</div><div class="value">{anomaly:.2f}</div>
     <div class="meter"><span style="width:{anomaly * 100:.1f}%;background:#7C3AED"></span></div><div class="sub">Isolation Forest (unsupervised)</div></div>
+  {prob_tile}
 </div></div>""")
 
 
@@ -170,3 +182,20 @@ def steps(items):
     html('<div class="steps">' + "".join(
         f'<div class="step"><div class="icon">{i}</div><div class="t">{escape(t)}</div><div class="d">{escape(d)}</div></div>'
         for i, t, d in items) + "</div>")
+
+
+EVENT_ICON = {"created": "🆕", "status_changed": "🔁", "note_updated": "📝", "deleted": "🗑️"}
+
+
+def timeline(events):
+    """Audit trail of a case, newest last."""
+    items = []
+    for e in events:
+        what = {"created": "opened the case",
+                "status_changed": f"changed status {escape(str(e['from_status']))} → <b>{escape(str(e['to_status']))}</b>",
+                "note_updated": "added a note", "deleted": "deleted the case"}.get(e["action"], escape(e["action"]))
+        note = f'<div class="tl-note">“{escape(e["notes"])}”</div>' if e.get("notes") else ""
+        items.append(f'<div class="tl-item"><div class="tl-icon">{EVENT_ICON.get(e["action"], "•")}</div><div>'
+                     f'<div><b>{escape(str(e["username"]))}</b> <span class="tl-role">{escape(str(e["role"]))}</span> {what}</div>'
+                     f'<div class="tl-time">{escape(str(e["at"]).replace("T", " ")[:16])} UTC</div>{note}</div></div>')
+    html('<div class="card">' + "".join(items) + "</div>")

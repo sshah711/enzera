@@ -25,3 +25,8 @@ data/raw/*
 
 # NOTE: models/, reports/, data/demo/ and data/samples/ are deliberately committed:
 # the Render backend and Streamlit frontend are built from them.
+
+# Retraining by-products (only the promoted models/enzera_model.joblib is deployed)
+models/candidate_model.joblib
+models/*.prev.joblib
+mlartifacts/

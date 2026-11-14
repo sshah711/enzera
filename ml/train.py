@@ -19,9 +19,10 @@ import joblib
 import matplotlib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import calibration_curve
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (average_precision_score, confusion_matrix, f1_score,
+from sklearn.metrics import (average_precision_score, brier_score_loss, confusion_matrix, f1_score,
                              precision_recall_curve, precision_score, recall_score,
                              roc_auc_score, roc_curve)
 from sklearn.model_selection import train_test_split
@@ -30,13 +31,24 @@ from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from ml.features import FEATURE_INFO, FEATURE_NAMES, clean, compute_features, monthly_means, split_wide
-from ml.scoring import shap_values
+from ml.scoring import calibrated, fit_calibrator, shap_values
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 SEED = 42
 ROOT = Path(__file__).resolve().parents[1]
+# Main model settings (scale_pos_weight is added from the class counts at training time)
+XGB_PARAMS = {"n_estimators": 400, "max_depth": 5, "learning_rate": 0.05, "subsample": 0.8, "colsample_bytree": 0.8}
+
+
+def make_splits(labels):
+    """70% train / 15% test / 15% demo, and 15% of train held out as validation. Stratified, seed 42."""
+    idx = np.arange(len(labels))
+    tr, rest = train_test_split(idx, test_size=0.30, stratify=labels, random_state=SEED)
+    te, demo = train_test_split(rest, test_size=0.50, stratify=labels[rest], random_state=SEED)
+    tr_fit, val = train_test_split(tr, test_size=0.15, stratify=labels[tr], random_state=SEED)
+    return tr, tr_fit, val, te, demo
 
 
 def top_k_capture(y, scores, frac=0.10):
@@ -47,6 +59,39 @@ def top_k_capture(y, scores, frac=0.10):
     caught = y[top].sum()
     return {"recall_at_top10": float(caught / max(1, y.sum())),
             "precision_at_top10": float(caught / k)}
+
+
+def capture_curve(y, scores):
+    """For each inspection budget of 1%..100% of customers (highest scores first):
+    share of all thieves found (recall) and share of visits that find a thief (precision)."""
+    order = np.argsort(-scores)
+    found = np.cumsum(y[order])
+    pct = np.arange(1, 101)
+    k = np.maximum(1, (pct / 100 * len(y)).astype(int))
+    return {"pct": pct.tolist(),
+            "recall": (found[k - 1] / y.sum()).round(4).tolist(),
+            "precision": (found[k - 1] / k).round(4).tolist()}
+
+
+def drift_reference(X, bins=10):
+    """Decile edges of each training feature, used later to measure drift (PSI) on new data."""
+    ref = {}
+    for j, name in enumerate(FEATURE_NAMES):
+        edges = np.unique(np.quantile(X[:, j], np.linspace(0, 1, bins + 1)[1:-1]))
+        counts = np.bincount(np.searchsorted(edges, X[:, j], side="right"), minlength=len(edges) + 1)
+        ref[name] = {"edges": edges.tolist(), "props": (counts / counts.sum()).tolist()}
+    return ref
+
+
+def save_calibration_plot(y, raw, cal, out):
+    fig, ax = plt.subplots(figsize=(5.5, 4.5))
+    ax.plot([0, 1], [0, 1], "k--", lw=0.8, label="Perfectly calibrated")
+    for p, name, col in [(raw, "Raw XGBoost score", "#E45756"), (cal, "Calibrated (Platt scaling)", "#4C78A8")]:
+        frac, mean_pred = calibration_curve(y, p, n_bins=10, strategy="quantile")
+        ax.plot(mean_pred, frac, "o-", color=col, label=f"{name} (Brier {brier_score_loss(y, p):.3f})")
+    ax.set_xlabel("Predicted probability"); ax.set_ylabel("Observed share of thieves")
+    ax.set_title("Calibration (test)"); ax.legend(fontsize=8)
+    fig.tight_layout(); fig.savefig(out / "calibration.png", dpi=120); plt.close(fig)
 
 
 def evaluate(y, prob, threshold):
@@ -138,18 +183,36 @@ def save_eval_plots(y, probs, threshold, xgb_prob, mean_abs_shap, out):
     fig.tight_layout(); fig.savefig(out / "shap_importance.png", dpi=120); plt.close(fig)
 
 
-def maybe_mlflow(results, params):
+def maybe_mlflow(results, params, version, reports):
+    """Log every model's parameters and test metrics to MLflow (if installed).
+    The XGBoost run also stores the figures, metrics.json and the model bundle as artifacts.
+    View with:  mlflow ui --backend-store-uri sqlite:///mlflow.db   (then open http://localhost:5000)"""
     try:
         import mlflow
     except ImportError:
-        print("MLflow not installed - skipping experiment logging")
+        print("MLflow not installed - skipping experiment logging (pip install -r notebooks/requirements.txt)")
         return
+    try:
+        _log_mlflow(mlflow, results, params, version, reports)
+        print("Logged runs to MLflow (run `mlflow ui --backend-store-uri sqlite:///mlflow.db` to view)")
+    except Exception as e:  # tracking must never break training
+        print("MLflow logging failed (training results are unaffected):", e)
+
+
+def _log_mlflow(mlflow, results, params, version, reports):
+    mlflow.set_tracking_uri(f"sqlite:///{(ROOT / 'mlflow.db').as_posix()}")
+    if mlflow.get_experiment_by_name("enzera") is None:
+        mlflow.create_experiment("enzera", artifact_location=(ROOT / "mlruns").as_uri())
     mlflow.set_experiment("enzera")
     for name, metrics in results.items():
-        with mlflow.start_run(run_name=name):
+        with mlflow.start_run(run_name=f"{name} {version}"):
+            mlflow.set_tags({"model_version": version, "n_features": len(FEATURE_NAMES)})
             mlflow.log_params(params.get(name, {}))
             mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, float)})
-    print("Logged runs to MLflow (run `mlflow ui` to view)")
+            if name == "xgboost":
+                for f in sorted(reports.glob("*.png")) + [reports / "metrics.json"]:
+                    mlflow.log_artifact(str(f), artifact_path="reports")
+                mlflow.log_artifact(str(ROOT / "models/enzera_model.joblib"), artifact_path="model")
 
 
 def main():
@@ -169,10 +232,7 @@ def main():
     print(f"{len(ids):,} customers x {len(dates):,} days, theft rate {labels.mean():.2%}")
 
     # 70 / 15 / 15 split: train, test (metrics), demo (never seen; shown in the app)
-    idx = np.arange(len(ids))
-    tr, rest = train_test_split(idx, test_size=0.30, stratify=labels, random_state=SEED)
-    te, demo = train_test_split(rest, test_size=0.50, stratify=labels[rest], random_state=SEED)
-    tr_fit, val = train_test_split(tr, test_size=0.15, stratify=labels[tr], random_state=SEED)
+    tr, tr_fit, val, te, demo = make_splits(labels)
 
     print("EDA charts (train split only)...")
     save_eda(values[tr], labels[tr], dates, reports)
@@ -186,8 +246,7 @@ def main():
     params = {
         "logistic_regression": {"class_weight": "balanced", "max_iter": 2000},
         "random_forest": {"n_estimators": 300, "class_weight": "balanced_subsample", "min_samples_leaf": 2},
-        "xgboost": {"n_estimators": 400, "max_depth": 5, "learning_rate": 0.05,
-                    "subsample": 0.8, "colsample_bytree": 0.8, "scale_pos_weight": round(spw, 3)},
+        "xgboost": {**XGB_PARAMS, "scale_pos_weight": round(spw, 3)},
     }
     models = {
         "logistic_regression": make_pipeline(StandardScaler(), LogisticRegression(**params["logistic_regression"])),
@@ -215,9 +274,22 @@ def main():
                                    "pr_auc": float(average_precision_score(y[te], iso_te)),
                                    **top_k_capture(y[te], iso_te)}
 
+    # Calibration: map raw scores to real probabilities, fitted on validation (not test)
+    val_prob = models["xgboost"].predict_proba(X[val])[:, 1]
+    calibrator = fit_calibrator(val_prob, y[val])
+    cal_te = calibrated({"calibrator": calibrator}, test_probs["xgboost"])
+    results["xgboost"]["brier_raw"] = float(brier_score_loss(y[te], test_probs["xgboost"]))
+    results["xgboost"]["brier_calibrated"] = float(brier_score_loss(y[te], cal_te))
+
+    # Reference statistics of the training features: drift monitoring + "similar customers"
+    Xf = X[tr_fit]
+    sim = np.sign(Xf) * np.log1p(np.abs(Xf))
     bundle = {
         "model": models["xgboost"], "iforest": iso, "iso_range": iso_range,
         "threshold": thresholds["xgboost"], "feature_names": FEATURE_NAMES,
+        "calibrator": calibrator,
+        "drift_ref": drift_reference(Xf),
+        "sim_mean": sim.mean(axis=0), "sim_std": sim.std(axis=0) + 1e-9,
         "version": datetime.now(timezone.utc).strftime("xgb-%Y%m%d-%H%M"),
     }
     joblib.dump(bundle, ROOT / "models/enzera_model.joblib")
@@ -225,6 +297,7 @@ def main():
     contribs = shap_values(bundle, feats.iloc[te])
     mean_abs = np.abs(contribs).mean(axis=0)
     save_eval_plots(y[te], test_probs, thresholds["xgboost"], test_probs["xgboost"], mean_abs, reports)
+    save_calibration_plot(y[te], test_probs["xgboost"], cal_te, reports)
 
     metrics = {
         "model_version": bundle["version"],
@@ -233,11 +306,14 @@ def main():
                     "theft_rate": float(labels.mean()),
                     "split": {"train": int(len(tr)), "test": int(len(te)), "demo": int(len(demo))}},
         "main_model": "xgboost",
+        "n_features": len(FEATURE_NAMES),
         "results": results,
+        "capture_curve": {"test_customers": int(len(te)), "test_thieves": int(y[te].sum()),
+                          **capture_curve(y[te], test_probs["xgboost"])},
         "feature_importance": {FEATURE_INFO[f]: float(v) for f, v in zip(FEATURE_NAMES, mean_abs)},
     }
     (reports / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    maybe_mlflow(results, params)
+    maybe_mlflow(results, params, bundle["version"], reports)
 
     # Demo customers for the deployed app: unseen by the model
     demo_ids, _ = train_test_split(demo, train_size=min(args.demo_size, len(demo) - 2),

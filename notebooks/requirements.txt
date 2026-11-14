@@ -4,3 +4,5 @@ imbalanced-learn==0.13.0
 nbformat==5.11.1
 nbconvert==7.17.2
 ipykernel==7.4.0
+# Experiment tracking (python -m ml.train logs to ./mlruns when installed; view with `mlflow ui`)
+mlflow==3.18.0

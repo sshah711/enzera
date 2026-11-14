@@ -6,6 +6,9 @@ services:
     ports: ["8000:8000"]
     environment:
       - API_KEY=${API_KEY:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - USERS=${USERS:-}
   frontend:
     build: { context: ., dockerfile: frontend/Dockerfile }
     ports: ["8501:8501"]
