@@ -1,0 +1,15 @@
+# Whole product locally:  docker compose up --build
+# Frontend: http://localhost:8501   API docs: http://localhost:8000/docs
+services:
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    ports: ["8000:8000"]
+    environment:
+      - API_KEY=${API_KEY:-}
+  frontend:
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    ports: ["8501:8501"]
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - API_KEY=${API_KEY:-}
+    depends_on: [backend]

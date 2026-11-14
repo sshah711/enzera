@@ -1,0 +1,6 @@
+# Extra packages for the notebooks only (install on top of the root requirements.txt):
+#   pip install -r requirements.txt -r notebooks/requirements.txt
+imbalanced-learn==0.13.0
+nbformat==5.11.1
+nbconvert==7.17.2
+ipykernel==7.4.0

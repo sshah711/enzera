@@ -1,0 +1,14 @@
+# Training + local development (pinned so the trained model loads identically in deployment)
+numpy==2.2.6
+pandas==2.2.3
+scikit-learn==1.6.1
+xgboost==2.1.4
+joblib==1.4.2
+matplotlib==3.10.1
+fastapi==0.115.12
+uvicorn==0.34.2
+python-multipart==0.0.20
+httpx==0.28.1
+pytest==8.3.5
+streamlit==1.45.1
+requests==2.32.3

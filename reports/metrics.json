@@ -1,0 +1,69 @@
+{
+  "model_version": "xgb-20261114-1143",
+  "trained_at": "2026-11-14T11:43:22+00:00",
+  "dataset": {
+    "customers": 42372,
+    "days": 1034,
+    "theft_rate": 0.08531577456811101,
+    "split": {
+      "train": 29660,
+      "test": 6356,
+      "demo": 6356
+    }
+  },
+  "main_model": "xgboost",
+  "results": {
+    "logistic_regression": {
+      "precision": 0.16277602523659307,
+      "recall": 0.47513812154696133,
+      "f1": 0.2424812030075188,
+      "roc_auc": 0.6950479952377016,
+      "pr_auc": 0.20517509785400337,
+      "threshold": 0.5410077283232443,
+      "recall_at_top10": 0.2504604051565378,
+      "precision_at_top10": 0.2141732283464567
+    },
+    "random_forest": {
+      "precision": 0.32432432432432434,
+      "recall": 0.35359116022099446,
+      "f1": 0.3383259911894273,
+      "roc_auc": 0.7764174982155637,
+      "pr_auc": 0.2932958124301663,
+      "threshold": 0.257326304310382,
+      "recall_at_top10": 0.3664825046040516,
+      "precision_at_top10": 0.31338582677165355
+    },
+    "xgboost": {
+      "precision": 0.36313868613138683,
+      "recall": 0.3664825046040516,
+      "f1": 0.36480293308890926,
+      "roc_auc": 0.7883994374709129,
+      "pr_auc": 0.3324751987007018,
+      "threshold": 0.6734834909439087,
+      "recall_at_top10": 0.40515653775322286,
+      "precision_at_top10": 0.3464566929133858
+    },
+    "isolation_forest": {
+      "roc_auc": 0.5948949439862833,
+      "pr_auc": 0.1145620919744733,
+      "recall_at_top10": 0.16022099447513813,
+      "precision_at_top10": 0.13700787401574804
+    }
+  },
+  "feature_importance": {
+    "Average daily consumption (kWh)": 0.14344142377376556,
+    "Day-to-day variation (kWh)": 0.41165900230407715,
+    "Relative variability of consumption": 0.19258327782154083,
+    "Highest daily consumption (kWh)": 0.33144521713256836,
+    "Share of days with missing readings": 0.4853515923023224,
+    "Share of days with zero consumption": 0.1246718317270279,
+    "Longest run of zero-consumption days": 0.14898526668548584,
+    "Share of days far below the usual level": 0.10322227329015732,
+    "Share of days with unusual spikes": 0.21034105122089386,
+    "Long-term trend of monthly usage": 0.29298219084739685,
+    "Largest month-to-month drop": 0.15683433413505554,
+    "Variability between months": 0.21643652021884918,
+    "Recent usage compared with earlier usage": 0.15509556233882904,
+    "Weekend vs weekday usage": 0.15385372936725616
+  }
+}

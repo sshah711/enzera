@@ -1,0 +1,11 @@
+# ENZERA look and feel (read by `streamlit run` locally and by Streamlit Community Cloud)
+[theme]
+base = "light"
+primaryColor = "#2563EB"
+backgroundColor = "#F4F6FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
