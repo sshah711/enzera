@@ -4,7 +4,11 @@
 ENZERA scores electricity customers for theft risk from their daily smart-meter readings, explains each
 score with SHAP, and lets inspectors open and close inspection cases.
 
-**Live demo:** _add your Streamlit link here_ · **API docs:** _add your Render link_/docs
+**Live demo:** https://enzera.streamlit.app · **API:** https://enzera-api.onrender.com ([interactive docs](https://enzera-api.onrender.com/docs))
+
+> The free Render backend sleeps after 15 minutes without visitors. The first request can take 30-60 seconds while it wakes up.
+
+[![CI](https://github.com/sshah711/enzera/actions/workflows/ci.yml/badge.svg)](https://github.com/sshah711/enzera/actions)
 
 ## How it works
 ```
@@ -18,8 +22,20 @@ SGCC data ──> ml/train.py ──> models/enzera_model.joblib ──> backend
 - **Explainability:** exact TreeSHAP values per customer -> top 3 reasons shown to inspectors
 - **Honest demo:** data split 70% train / 15% test / 15% demo. The app only shows demo customers the model never saw.
 
-## Results (held-out test set)
-_Paste the table from the Model performance page here after training._
+## Results (held-out test set, 6,356 customers)
+From `reports/metrics.json` (model `xgb-20261114-1143`). Thresholds tuned for best F1 on a validation split.
+
+| Model | Precision | Recall | F1 | ROC-AUC | PR-AUC | Theft caught in top 10% |
+|---|---|---|---|---|---|---|
+| Logistic Regression | 0.163 | 0.475 | 0.242 | 0.695 | 0.205 | 25.0% |
+| Random Forest | 0.324 | 0.354 | 0.338 | 0.776 | 0.293 | 36.6% |
+| **XGBoost (deployed)** | **0.363** | 0.366 | **0.365** | **0.788** | **0.332** | **40.5%** |
+| Isolation Forest (unsupervised) | - | - | - | 0.595 | 0.115 | 16.0% |
+
+Random ranking would give PR-AUC ≈ 0.085 (the theft rate) and catch 10% of thieves in the top 10%.
+`notebooks/02_experiments.ipynb` compares SMOTE and three other XGBoost settings on the same split. None beats
+the deployed model (SMOTE: PR-AUC 0.296; best alternative ties at 0.332, within bootstrap noise), so it is kept.
+EDA: `notebooks/01_eda.ipynb`. Explanations: `docs/explainability.md`.
 
 ## Run it
 ```bash
@@ -35,6 +51,11 @@ uvicorn backend.main:app --reload
 
 # 3. Frontend (second terminal) -> http://localhost:8501
 streamlit run frontend/app.py
+
+# Windows: if `activate` is blocked, skip it and use the venv's Python directly:
+#   venv\Scripts\python -m uvicorn backend.main:app
+#   venv\Scripts\python -m streamlit run frontend/app.py
+# Notebooks: pip install -r notebooks/requirements.txt
 
 # Tests
 pytest -q
