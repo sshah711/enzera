@@ -37,14 +37,14 @@ Customer detail → **🗂️ Inspection** → show the **PDF inspection sheet**
 **🧭 Inspection planner** → set budget 10%:
 > "Visiting the top 10% finds about 43% of thieves, against 10% at random."
 
-**📈 Model performance**:
+**Results** (from the report / Word guide, not the website):
 > "PR-AUC 0.376, ROC-AUC 0.798, best of four models. Gap-aware features improved it from 0.332; SMOTE and tuning didn't. Thank you."
 
 ## Optional extension (if time allows, ≈ 2:00)
 - **Similar customers** tab: "the 5 most similar profiles and their curves."
 - **Monitoring** page: "PSI per feature; the demo customers are stable."
-- Model performance → **🧯 Attack test** tab: "honest limitation: injected attacks aren't detected; the model learned who was caught."
-- **🤖 Deep learning** tab: "the CNN + XGBoost ensemble reaches 0.433; not deployed, to keep exact explanations."
+- Attack test (report / Word guide): "honest limitation: injected attacks aren't detected; the model learned who was caught."
+- Deep learning (report / Word guide): "the CNN + XGBoost ensemble reaches 0.433; not deployed, to keep exact explanations."
 - Customer `F21D74D3…`: "zero usage for 3 years: theft risk 0.0025 but anomaly 0.90."
 
 ## Backup plan

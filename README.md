@@ -28,7 +28,7 @@ From `reports/metrics.json` (model `xgb-20261114-1557`). Thresholds tuned for be
 
 | Model | Precision | Recall | F1 | ROC-AUC | PR-AUC | Theft caught in top 10% |
 |---|---|---|---|---|---|---|
-| Logistic Regression | 0.176 | 0.506 | 0.261 | 0.699 | 0.218 | 28.2% |
+| Logistic Regression | 0.175 | 0.506 | 0.261 | 0.699 | 0.218 | 28.2% |
 | Random Forest | 0.409 | 0.293 | 0.341 | 0.781 | 0.337 | 40.2% |
 | **XGBoost (deployed)** | 0.394 | 0.394 | **0.394** | **0.798** | **0.376** | **43.5%** |
 | Isolation Forest (unsupervised) | - | - | - | 0.586 | 0.109 | 13.8% |

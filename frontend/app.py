@@ -18,7 +18,6 @@ import sheet  # noqa: E402
 import style as ui  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-REPORTS = ROOT / "reports"
 
 
 def setting(name, default=None):
@@ -127,34 +126,42 @@ def risk_table(df, height=None):
 
 # ---------------------------------------------------------------- sidebar
 PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
-         "Inspection cases": "🗂️", "Monitoring": "📡", "Model performance": "📈", "About": "ℹ️"}
+         "Inspection cases": "🗂️", "Monitoring": "📡"}
 with st.sidebar:
     status_html = ui.brand(backend_online(), BACKEND)
     page = st.radio("Navigate", list(PAGES), format_func=lambda p: f"{PAGES[p]}  {p}", label_visibility="collapsed")
+    ui.html('<div class="nav-divider"></div>')
     if st.session_state.auth:
         a = st.session_state.auth
-        ui.html(f'<div class="status">👤 <b>{a["username"]}</b> · {a["role"]}</div>')
-        if st.button("Log out", use_container_width=True):
+        ui.user_card(a["username"], a["role"])
+        if st.button("Sign out", key="logout", use_container_width=True):
             st.session_state.auth = None
             st.rerun()
     else:
-        with st.expander("🔐 Log in (inspectors / managers)"):
-            with st.form("login", clear_on_submit=False):
-                user = st.text_input("Username")
-                pw = st.text_input("Password", type="password")
-                if st.form_submit_button("Log in", use_container_width=True):
-                    try:
-                        r = requests.post(BACKEND + "/auth/login", json={"username": user, "password": pw},
+        ui.login_header()
+        with st.form("login", clear_on_submit=False, border=False):
+            user = st.text_input("Username", placeholder="e.g. inspector")
+            pw = st.text_input("Password", type="password", placeholder="Your password")
+            submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+        if submitted:
+            if not user or not pw:
+                st.warning("Enter both username and password.")
+            else:
+                try:
+                    with st.spinner("Signing in…"):
+                        r = requests.post(BACKEND + "/auth/login", json={"username": user.strip(), "password": pw},
                                           headers=headers(), timeout=90)
-                    except requests.RequestException:
-                        r = None
-                    if r is not None and r.ok:
-                        st.session_state.auth = r.json()
-                        st.rerun()
-                    else:
-                        st.error("Wrong username or password." if r is not None else "Backend unreachable.")
-            st.caption("Viewing is open to everyone. Opening cases needs an inspector login; recording outcomes "
-                       "needs a manager. Demo accounts are listed in the README.")
+                except requests.RequestException:
+                    r = None
+                if r is not None and r.ok:
+                    st.session_state.auth = r.json()
+                    st.rerun()
+                elif r is not None and r.status_code == 401:
+                    st.error("Wrong username or password.")
+                else:
+                    st.error("Server is not responding (it may be waking up). Wait 30-60 seconds and try again.")
+        ui.html('<div class="login-note">Viewing is open to everyone. Sign in to open cases (inspector) or '
+                'record outcomes (manager).</div>')
     ui.html(status_html)
 
 # ---------------------------------------------------------------- dashboard
@@ -446,13 +453,11 @@ elif page == "Inspection cases":
             ui.section("🕓", "History")
             ui.timeline(api("GET", f"/cases/{case_id}/history"))
 
-    ui.section("🔁", "Retraining from inspection outcomes")
+    ui.section("🔁", "Learning from inspections")
     decided = by.get("theft_confirmed", 0) + by.get("normal", 0)
-    st.write(f"**{decided}** decided case(s) so far. Each confirmed outcome (theft or normal) is a new, verified "
-             "training label. A manager can export them and retrain:")
-    st.code("python -m ml.retrain --api " + BACKEND + " --user manager --password <password>\n"
-            "# compares the candidate with the current model on the fixed test set; add --promote to deploy it "
-            "only if it is not worse", language="bash")
+    st.write(f"**{decided}** decided case(s) so far. Every confirmed outcome (theft or normal) becomes a verified "
+             "training label. The model is retrained regularly with these labels, and a new model goes live only "
+             "if it performs at least as well as the current one.")
     if role() == "manager":
         labels = api("GET", "/labels")
         if labels:
@@ -484,81 +489,3 @@ elif page == "Monitoring":
         use_container_width=True)
     if not st.session_state.get("last_upload"):
         st.caption("Upload a file in 📤 Upload and score to check its drift here as well.")
-
-# ---------------------------------------------------------------- performance
-elif page == "Model performance":
-    m = api("GET", "/metrics")
-    d = m["dataset"]
-    ui.hero("Model performance", f"Model <b>{m['model_version']}</b> with {m.get('n_features', 17)} features, trained on SGCC: "
-            f"{d['customers']:,} customers, {d['days']:,} days, theft rate {d['theft_rate']:.1%}. All metrics on the held-out "
-            f"test split ({d['split']['test']:,} customers).", tag="Evaluation")
-    x = m["results"]["xgboost"]
-    ui.kpis([("PR-AUC", f"{x['pr_auc']:.3f}", f"random = {d['theft_rate']:.3f}", "#2563EB"),
-             ("ROC-AUC", f"{x['roc_auc']:.3f}", "random = 0.500", "#7C3AED"),
-             ("Theft caught in top 10%", f"{x['recall_at_top10']:.1%}", "random = 10%", "#DC2626"),
-             ("Precision / Recall", f"{x['precision']:.2f} / {x['recall']:.2f}", f"threshold {x['threshold']:.2f}", "#16A34A"),
-             ("Brier score", f"{x.get('brier_calibrated', float('nan')):.3f}",
-              f"calibrated (raw {x.get('brier_raw', float('nan')):.3f})", "#0EA5E9")])
-
-    ui.section("🏆", "Model comparison")
-    rows = [{"Model": name.replace("_", " ").title() + (" ⭐" if name == m["main_model"] else ""),
-             "Precision": r.get("precision"), "Recall": r.get("recall"), "F1": r.get("f1"),
-             "ROC-AUC": r.get("roc_auc"), "PR-AUC": r.get("pr_auc"),
-             "Theft caught in top 10%": r.get("recall_at_top10")} for name, r in m["results"].items()]
-    st.dataframe(pd.DataFrame(rows).round(3), hide_index=True, use_container_width=True)
-    st.caption(f"Split: {d['split']['train']:,} train / {d['split']['test']:,} test / {d['split']['demo']:,} demo (unseen). "
-               "Isolation Forest is unsupervised, so it has no threshold-based metrics.")
-
-    tabs = st.tabs(["📈 Evaluation", "🔎 Exploratory analysis", "🧪 Experiments", "🧯 Attack test", "🤖 Deep learning"])
-    groups = [["roc_pr.png", "confusion_matrix.png", "shap_importance.png", "calibration.png"],
-              ["eda_class_balance.png", "eda_missing.png", "eda_avg_consumption.png", "eda_sample_curves.png"],
-              ["experiments.png"], ["attack_detection.png"], []]
-    tables = [[], [], [("Feature experiments (notebook 03)", "feature_experiments.csv"),
-                       ("Imbalance + hyperparameter experiments (notebook 02, 14-feature model)", "experiments.csv")],
-              [("Synthetic attacks on honest test customers (notebook 04)", "attack_detection.csv")],
-              [("1D-CNN vs XGBoost (notebook 05)", "cnn_comparison.csv")]]
-    for tab, files, tbls in zip(tabs, groups, tables):
-        with tab:
-            for title, f in tbls:
-                if (REPORTS / f).exists():
-                    st.markdown(f"**{title}**")
-                    st.dataframe(pd.read_csv(REPORTS / f).round(3), hide_index=True, use_container_width=True)
-            cols = st.columns(2)
-            for i, f in enumerate(f for f in files if (REPORTS / f).exists()):
-                cols[i % 2].image(str(REPORTS / f), use_container_width=True)
-    st.caption("Every training run is also logged to MLflow: run `mlflow ui --backend-store-uri sqlite:///mlflow.db` locally.")
-
-# ---------------------------------------------------------------- about
-else:
-    ui.hero("ENZERA", "An Explainable AI-Based System for Electricity Theft and Abnormal Consumption Detection",
-            tag="About the project")
-    ui.section("👥", "Team")
-    ui.kpis([("Member A", "Member A name", "role / contribution", "#2563EB"),
-             ("Member B", "Member B name", "role / contribution", "#7C3AED")])
-    st.caption("M.Tech Data Science · Applied Machine Learning project")
-
-    ui.section("🔄", "How it works")
-    ui.steps([("📥", "Smart-meter data", "Daily kWh readings (SGCC)"),
-              ("🧹", "Gap-aware cleaning", "17 consumption features"),
-              ("🌲", "XGBoost + IForest", "Theft risk + anomaly score"),
-              ("🧠", "TreeSHAP", "Reasons, waterfall, what-if"),
-              ("🗂️", "Inspection", "Cases, audit trail, retraining")])
-
-    ui.section("📚", "Details")
-    st.markdown("""
-- **Model:** XGBoost on 17 engineered features (level, variability, low-usage, trend, weekly pattern, data quality),
-  computed only on the days each meter actually reported. Compared with Logistic Regression, Random Forest and a 1D-CNN.
-  Class weights for imbalance; threshold tuned on a validation split; isotonic calibration for probabilities.
-- **Abnormal consumption:** Isolation Forest trained on normal customers only.
-- **Explainability:** exact TreeSHAP values per customer: top reasons, full waterfall and a what-if simulator.
-- **Operations:** inspector/manager roles, audit trail, label export and retraining script, drift monitoring (PSI), MLflow.
-- **Data:** SGCC Electricity Theft Detection dataset, 42,372 customers. Customers in this app come from a demo split the
-  model never saw during training.
-- **Stack:** FastAPI + SQLAlchemy (SQLite or PostgreSQL), Streamlit, Docker, GitHub Actions CI.
-
-References: Zheng et al., *Wide and Deep Convolutional Neural Networks for Electricity-Theft Detection to Secure Smart
-Grids*, IEEE TII, 2018 · Jokar et al., *Electricity Theft Detection in AMI Using Customers' Consumption Patterns*,
-IEEE TSG, 2016.
-""")
-    with st.expander("Backend health"):
-        st.json(api("GET", "/health"))

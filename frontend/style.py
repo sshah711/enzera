@@ -75,7 +75,7 @@ html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea, selec
 .bar { height:6px; border-radius:999px; background:#FEE2E2; margin-top:.45rem; overflow:hidden; }
 .bar > span { display:block; height:100%; background:#DC2626; border-radius:999px; }
 
-/* ---------- pipeline steps (About) ---------- */
+/* ---------- pipeline steps ---------- */
 .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
 .step { background:#fff; border:1px solid #E5E9F2; border-radius:14px; padding:.9rem; text-align:center; }
 .step .icon { font-size:1.6rem; } .step .t { font-weight:700; margin-top:.25rem; } .step .d { font-size:.8rem; color:#64748B; }
@@ -96,6 +96,41 @@ html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea, selec
 [data-testid="stImage"] img { border-radius:12px; border:1px solid #E5E9F2; background:#fff; }
 .stTabs [data-baseweb="tab-list"] { gap:6px; }
 .stTabs [data-baseweb="tab"] { border-radius:10px 10px 0 0; padding:.5rem 1rem; font-weight:600; }
+
+/* ---------- sidebar sign-in ---------- */
+.nav-divider { height:1px; background:rgba(255,255,255,.12); margin:.9rem 0 .9rem; }
+.login-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; }
+.login-head .lock { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-size:1rem;
+  background:rgba(96,165,250,.18); border:1px solid rgba(96,165,250,.35); }
+.login-head .t { font-weight:700; font-size:.98rem; line-height:1.2; }
+.login-head .s { font-size:.74rem; opacity:.7; }
+.login-note { font-size:.74rem; opacity:.7; line-height:1.4; margin-top:.5rem; }
+[data-testid="stSidebar"] [data-testid="stForm"] { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
+  border-radius:14px; padding:.8rem .8rem .3rem; }
+[data-testid="stSidebar"] [data-testid="stTextInput"] label p { font-size:.78rem; font-weight:600; }
+[data-testid="stSidebar"] [data-testid="InputInstructions"] { display:none; }
+[data-testid="stSidebar"] [data-baseweb="input"], [data-testid="stSidebar"] [data-baseweb="base-input"] {
+  background:rgba(2,6,23,.45) !important; border-color:rgba(255,255,255,.18) !important; border-radius:10px; }
+[data-testid="stSidebar"] [data-baseweb="input"]:focus-within { border-color:#60A5FA !important;
+  box-shadow:0 0 0 2px rgba(96,165,250,.25); }
+[data-testid="stSidebar"] input { background:transparent !important; color:#F8FAFC !important;
+  -webkit-text-fill-color:#F8FAFC !important; caret-color:#F8FAFC; }
+[data-testid="stSidebar"] input::placeholder { color:#94A3B8 !important; -webkit-text-fill-color:#94A3B8 !important; }
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button {
+  background:linear-gradient(135deg,#3B82F6,#2563EB) !important; border:none !important; color:#fff !important;
+  box-shadow:0 6px 16px rgba(37,99,235,.35); margin-top:.2rem; }
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover { filter:brightness(1.08); }
+[data-testid="stSidebar"] .stButton > button { background:transparent !important; border:1px solid rgba(255,255,255,.25) !important; }
+[data-testid="stSidebar"] .stButton > button:hover { background:rgba(255,255,255,.08) !important; }
+[data-testid="stSidebar"] [data-testid="stAlert"] { background:rgba(255,255,255,.08); border-radius:10px; }
+.user-card { display:flex; gap:.7rem; align-items:center; padding:.75rem .8rem; border-radius:14px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); margin-bottom:.6rem; }
+.user-card .avatar { width:38px; height:38px; flex:0 0 38px; border-radius:50%; display:grid; place-items:center;
+  font-weight:800; font-size:1rem; color:#fff !important; }
+.user-card .u { font-weight:700; font-size:.95rem; }
+.user-card .role { display:inline-block; font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  padding:.1rem .5rem; border-radius:999px; margin-top:.15rem; }
+.user-card .can { font-size:.72rem; opacity:.72; margin-top:.25rem; line-height:1.35; }
 
 /* ---------- phones ---------- */
 @media (max-width: 640px) {
@@ -199,3 +234,20 @@ def timeline(events):
                      f'<div><b>{escape(str(e["username"]))}</b> <span class="tl-role">{escape(str(e["role"]))}</span> {what}</div>'
                      f'<div class="tl-time">{escape(str(e["at"]).replace("T", " ")[:16])} UTC</div>{note}</div></div>')
     html('<div class="card">' + "".join(items) + "</div>")
+
+
+ROLE_STYLE = {"manager": ("#7C3AED", "Record outcomes, delete cases, export labels"),
+              "inspector": ("#2563EB", "Open cases and add inspection notes")}
+
+
+def login_header():
+    html('<div class="login-head"><div class="lock">🔐</div><div><div class="t">Staff sign in</div>'
+         '<div class="s">Inspectors and managers</div></div></div>')
+
+
+def user_card(username, role):
+    color, can = ROLE_STYLE.get(role, ("#0EA5E9", ""))
+    html(f'<div class="user-card"><div class="avatar" style="background:{color}">{escape(username[:1].upper())}</div>'
+         f'<div><div class="u">{escape(username)}</div>'
+         f'<span class="role" style="background:{color}33;border:1px solid {color}">{escape(role)}</span>'
+         f'<div class="can">{escape(can)}</div></div></div>')

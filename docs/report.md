@@ -207,7 +207,7 @@ full **capture curve** (share of thieves found for every inspection budget from 
 
 | Model | Precision | Recall | F1 | ROC-AUC | PR-AUC | Theft caught in top 10% | Precision in top 10% | Threshold |
 |---|---|---|---|---|---|---|---|---|
-| Logistic Regression | 0.176 | 0.506 | 0.261 | 0.699 | 0.218 | 28.2% | 24.1% | 0.533 |
+| Logistic Regression | 0.175 | 0.506 | 0.261 | 0.699 | 0.218 | 28.2% | 24.1% | 0.533 |
 | Random Forest | **0.409** | 0.293 | 0.341 | 0.781 | 0.337 | 40.2% | 34.3% | 0.302 |
 | **XGBoost (deployed)** | 0.394 | 0.394 | **0.394** | **0.798** | **0.376** | **43.5%** | **37.2%** | 0.656 |
 | Isolation Forest | - | - | - | 0.586 | 0.109 | 13.8% | 11.8% | - |
@@ -352,7 +352,7 @@ with the old labels or cover new theft styles.
                                                   │ git push
      GitHub ──► Actions CI (20 tests + Docker build)
        │
-       ├──► Render (Docker, free): FastAPI backend ◄──── HTTPS / JSON ────► Streamlit Cloud: frontend (8 pages)
+       ├──► Render (Docker, free): FastAPI backend ◄──── HTTPS / JSON ────► Streamlit Cloud: frontend (6 pages)
        │      · scores 1,000 demo customers at startup                       · dashboard · customer detail (reasons,
        │      · SHAP, what-if, similar customers, drift (PSI)                  waterfall, what-if, similar, PDF sheet)
        │      · login tokens + roles (inspector / manager)                   · upload + drift check · inspection planner
@@ -409,7 +409,7 @@ Render Postgres database) so cases persist, plus `SECRET_KEY` and `USERS`. Front
 `BACKEND_URL` secret). Local: `docker compose up --build` or two terminals.
 
 [SCREENSHOT: Risk dashboard]   [SCREENSHOT: Inspection planner]   [SCREENSHOT: Inspection cases with history timeline]
-[SCREENSHOT: Monitoring]   [SCREENSHOT: Model performance]   [SCREENSHOT: PDF inspection sheet]   [SCREENSHOT: MLflow UI]
+[SCREENSHOT: Monitoring]   [SCREENSHOT: PDF inspection sheet]   [SCREENSHOT: MLflow UI]
 
 ---
 

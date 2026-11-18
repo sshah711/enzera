@@ -65,8 +65,8 @@ Speaker notes are in *italics*.
 - Visual: Customer detail waterfall screenshot + `shap_importance.png`
 
 ## 11. Product
-- 8 pages: dashboard, customer detail (reasons, waterfall, what-if, similar, PDF sheet), upload + drift check,
-  **inspection planner**, cases (roles + audit timeline), **monitoring (PSI)**, performance, about
+- 6 pages: dashboard, customer detail (reasons, waterfall, what-if, similar, PDF sheet), upload + drift check,
+  **inspection planner**, cases (roles + audit timeline), **monitoring (PSI)**
 - Retraining from confirmed cases with a promotion gate (demo: +80 labels → candidate worse → correctly not promoted)
 - Visual: planner + case timeline screenshots
 
