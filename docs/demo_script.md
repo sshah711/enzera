@@ -3,9 +3,10 @@
 ## Before you start (do not skip)
 - **Open https://enzera-api.onrender.com/health at least 2 minutes early** so Render wakes up (it sleeps after 15 minutes).
   Wait for `"status":"ok"`.
-- Open **https://enzera.streamlit.app** and check the sidebar says **Backend online**.
-- **Log in as manager** in the sidebar (🔐 Log in) using the demo account from the README, so you can open and close cases without
-  switching.
+- Open **https://enzera.streamlit.app**: it starts on the **Staff sign in** page.
+- **Sign in as manager** (`manager` / `manager123`, shown as Anil Mehta) so you can open and close cases without switching.
+  The sidebar then shows only the manager's details and **Backend online**. To show the inspector view, sign out and use
+  `inspector` / `inspector123` (Rahul Patel).
 - Have `data/samples/sample_upload.csv` ready (or download it from the Upload page). Zoom the browser to 90-100%.
 
 ## Script (≈ 3:00)

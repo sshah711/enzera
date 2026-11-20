@@ -99,38 +99,23 @@ html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea, selec
 
 /* ---------- sidebar sign-in ---------- */
 .nav-divider { height:1px; background:rgba(255,255,255,.12); margin:.9rem 0 .9rem; }
-.login-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; }
-.login-head .lock { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-size:1rem;
-  background:rgba(96,165,250,.18); border:1px solid rgba(96,165,250,.35); }
-.login-head .t { font-weight:700; font-size:.98rem; line-height:1.2; }
-.login-head .s { font-size:.74rem; opacity:.7; }
-.login-note { font-size:.74rem; opacity:.7; line-height:1.4; margin-top:.5rem; }
-[data-testid="stSidebar"] [data-testid="stForm"] { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
-  border-radius:14px; padding:.8rem .8rem .3rem; }
-[data-testid="stSidebar"] [data-testid="stTextInput"] label p { font-size:.78rem; font-weight:600; }
-[data-testid="stSidebar"] [data-testid="InputInstructions"] { display:none; }
-[data-testid="stSidebar"] [data-baseweb="input"], [data-testid="stSidebar"] [data-baseweb="base-input"] {
-  background:rgba(2,6,23,.45) !important; border-color:rgba(255,255,255,.18) !important; border-radius:10px; }
-[data-testid="stSidebar"] [data-baseweb="input"]:focus-within { border-color:#60A5FA !important;
-  box-shadow:0 0 0 2px rgba(96,165,250,.25); }
-[data-testid="stSidebar"] input { background:transparent !important; color:#F8FAFC !important;
-  -webkit-text-fill-color:#F8FAFC !important; caret-color:#F8FAFC; }
-[data-testid="stSidebar"] input::placeholder { color:#94A3B8 !important; -webkit-text-fill-color:#94A3B8 !important; }
-[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button {
-  background:linear-gradient(135deg,#3B82F6,#2563EB) !important; border:none !important; color:#fff !important;
-  box-shadow:0 6px 16px rgba(37,99,235,.35); margin-top:.2rem; }
-[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button:hover { filter:brightness(1.08); }
 [data-testid="stSidebar"] .stButton > button { background:transparent !important; border:1px solid rgba(255,255,255,.25) !important; }
 [data-testid="stSidebar"] .stButton > button:hover { background:rgba(255,255,255,.08) !important; }
-[data-testid="stSidebar"] [data-testid="stAlert"] { background:rgba(255,255,255,.08); border-radius:10px; }
-.user-card { display:flex; gap:.7rem; align-items:center; padding:.75rem .8rem; border-radius:14px;
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); margin-bottom:.6rem; }
-.user-card .avatar { width:38px; height:38px; flex:0 0 38px; border-radius:50%; display:grid; place-items:center;
+
+/* ---------- signed-in profile card (sidebar) ---------- */
+.profile { padding:.9rem .9rem .7rem; border-radius:14px; background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12); margin-bottom:.6rem; }
+.profile .top { display:flex; gap:.7rem; align-items:center; }
+.profile .avatar { width:42px; height:42px; flex:0 0 42px; border-radius:50%; display:grid; place-items:center;
   font-weight:800; font-size:1rem; color:#fff !important; }
-.user-card .u { font-weight:700; font-size:.95rem; }
-.user-card .role { display:inline-block; font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-  padding:.1rem .5rem; border-radius:999px; margin-top:.15rem; }
-.user-card .can { font-size:.72rem; opacity:.72; margin-top:.25rem; line-height:1.35; }
+.profile .n { font-weight:700; font-size:.98rem; line-height:1.2; }
+.profile .t { font-size:.74rem; opacity:.75; }
+.profile .role { display:inline-block; font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  padding:.08rem .5rem; border-radius:999px; margin-top:.2rem; }
+.profile dl { display:grid; grid-template-columns:auto 1fr; gap:.25rem .6rem; margin:.7rem 0 .2rem; font-size:.75rem; }
+.profile dt { opacity:.6; } .profile dd { margin:0; word-break:break-word; }
+.profile .can { font-size:.72rem; opacity:.75; line-height:1.35; border-top:1px solid rgba(255,255,255,.1);
+  padding-top:.5rem; margin-top:.4rem; }
 
 /* ---------- phones ---------- */
 @media (max-width: 640px) {
@@ -240,14 +225,54 @@ ROLE_STYLE = {"manager": ("#7C3AED", "Record outcomes, delete cases, export labe
               "inspector": ("#2563EB", "Open cases and add inspection notes")}
 
 
-def login_header():
-    html('<div class="login-head"><div class="lock">🔐</div><div><div class="t">Staff sign in</div>'
-         '<div class="s">Inspectors and managers</div></div></div>')
+LOGIN_CSS = """
+<style>
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] { display:none; }
+[data-testid="stAppViewContainer"] { background: radial-gradient(circle at 15% 10%, rgba(96,165,250,.35), transparent 40%),
+  radial-gradient(circle at 85% 90%, rgba(245,158,11,.18), transparent 40%), linear-gradient(135deg,#0B1F3A,#12305C); }
+[data-testid="stHeader"] { background:transparent; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-top:8vh; }
+.login-brand { text-align:center; color:#fff; margin-bottom:1.2rem; }
+.login-brand .bolt { width:58px; height:58px; margin:0 auto .7rem; border-radius:16px; display:grid; place-items:center;
+  font-size:1.8rem; background:linear-gradient(135deg,#F59E0B,#FBBF24); box-shadow:0 10px 28px rgba(245,158,11,.4); }
+.login-brand .name { font-size:2rem; font-weight:800; letter-spacing:.08em; }
+.login-brand .sub { font-size:.9rem; opacity:.8; margin-top:.2rem; }
+.login-brand .h { font-size:1.1rem; font-weight:700; margin-top:1.4rem; }
+[data-testid="stForm"] { background:#fff; border-radius:18px; padding:1.4rem 1.4rem .9rem;
+  box-shadow:0 20px 50px rgba(2,6,23,.35); border:none; }
+[data-testid="InputInstructions"] { display:none; }
+[data-testid="stFormSubmitButton"] > button { background:linear-gradient(135deg,#3B82F6,#2563EB); border:none; color:#fff;
+  padding:.6rem; box-shadow:0 6px 16px rgba(37,99,235,.35); }
+.login-foot { text-align:center; color:#CBD5E1; font-size:.8rem; margin-top:1rem; line-height:1.45; }
+[data-testid="stForm"] [data-baseweb="input"] { background:#F1F5F9; border:1px solid #CBD5E1; border-radius:10px; }
+[data-testid="stForm"] [data-baseweb="input"]:focus-within { border-color:#3B82F6; box-shadow:0 0 0 3px rgba(59,130,246,.2); }
+[data-testid="stForm"] [data-baseweb="base-input"], [data-testid="stForm"] input { background:transparent; }
+input::-ms-reveal, input::-ms-clear { display:none; }
+[data-testid="stAlert"] { background:#fff; border-radius:12px; box-shadow:0 8px 20px rgba(2,6,23,.25); }
+[data-testid="stAlert"] p { font-weight:600; }
+</style>
+"""
 
 
-def user_card(username, role):
+def login_page_css():
+    st.markdown(LOGIN_CSS, unsafe_allow_html=True)
+
+
+def login_brand():
+    html('<div class="login-brand"><div class="bolt">⚡</div><div class="name">ENZERA</div>'
+         '<div class="sub">Electricity theft detection for inspection teams</div>'
+         '<div class="h">Staff sign in</div></div>')
+
+
+def profile_card(username, role, p):
+    """Details of the signed-in user only (inspector or manager)."""
     color, can = ROLE_STYLE.get(role, ("#0EA5E9", ""))
-    html(f'<div class="user-card"><div class="avatar" style="background:{color}">{escape(username[:1].upper())}</div>'
-         f'<div><div class="u">{escape(username)}</div>'
-         f'<span class="role" style="background:{color}33;border:1px solid {color}">{escape(role)}</span>'
-         f'<div class="can">{escape(can)}</div></div></div>')
+    name = p.get("full_name") or username
+    initials = "".join(w[0] for w in name.split()[:2]).upper()
+    rows = [("Username", username), ("Employee ID", p.get("employee_id")), ("Zone", p.get("zone")),
+            ("Phone", p.get("phone")), ("Email", p.get("email"))]
+    dl = "".join(f"<dt>{k}</dt><dd>{escape(str(v))}</dd>" for k, v in rows if v)
+    html(f'<div class="profile"><div class="top"><div class="avatar" style="background:{color}">{escape(initials)}</div>'
+         f'<div><div class="n">{escape(name)}</div><div class="t">{escape(p.get("title", ""))}</div>'
+         f'<span class="role" style="background:{color}33;border:1px solid {color}">{escape(role)}</span></div></div>'
+         f'<dl>{dl}</dl><div class="can">Can: {escape(can)}</div></div>')

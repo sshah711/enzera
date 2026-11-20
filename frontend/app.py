@@ -69,7 +69,7 @@ def api(method, path, **kw):
         show_error(f"The backend is not ready yet (HTTP {r.status_code}).", WAKING_UP)
     if r.status_code == 401 and st.session_state.auth and path.startswith("/cases"):
         st.session_state.auth = None
-        show_error("Your session has expired.", "Please log in again in the sidebar.")
+        show_error("Your session has expired.", "Press **Try again** to go back to the sign-in page.")
     if r.status_code == 401:
         try:
             detail = r.json().get("detail", "")
@@ -124,44 +124,52 @@ def risk_table(df, height=None):
     return df[cols]
 
 
-# ---------------------------------------------------------------- sidebar
-PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
-         "Inspection cases": "🗂️", "Monitoring": "📡"}
-with st.sidebar:
-    status_html = ui.brand(backend_online(), BACKEND)
-    page = st.radio("Navigate", list(PAGES), format_func=lambda p: f"{PAGES[p]}  {p}", label_visibility="collapsed")
-    ui.html('<div class="nav-divider"></div>')
-    if st.session_state.auth:
-        a = st.session_state.auth
-        ui.user_card(a["username"], a["role"])
-        if st.button("Sign out", key="logout", use_container_width=True):
-            st.session_state.auth = None
-            st.rerun()
+# ---------------------------------------------------------------- sign-in page (shown before anything else)
+def sign_in(user, pw):
+    if not user or not pw:
+        return st.warning("Enter both username and password.")
+    try:
+        with st.spinner("Signing in…"):
+            r = requests.post(BACKEND + "/auth/login", json={"username": user.strip(), "password": pw},
+                              headers=headers(), timeout=90)
+    except requests.RequestException:
+        r = None
+    if r is not None and r.ok:
+        st.session_state.auth = r.json()
+        st.rerun()
+    elif r is not None and r.status_code == 401:
+        st.error("Wrong username or password.")
     else:
-        ui.login_header()
-        with st.form("login", clear_on_submit=False, border=False):
+        st.error("Server is not responding (it may be waking up). Wait 30-60 seconds and try again.")
+
+
+if not st.session_state.auth:
+    ui.login_page_css()
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        ui.login_brand()
+        with st.form("login", border=False):
             user = st.text_input("Username", placeholder="e.g. inspector")
             pw = st.text_input("Password", type="password", placeholder="Your password")
             submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
         if submitted:
-            if not user or not pw:
-                st.warning("Enter both username and password.")
-            else:
-                try:
-                    with st.spinner("Signing in…"):
-                        r = requests.post(BACKEND + "/auth/login", json={"username": user.strip(), "password": pw},
-                                          headers=headers(), timeout=90)
-                except requests.RequestException:
-                    r = None
-                if r is not None and r.ok:
-                    st.session_state.auth = r.json()
-                    st.rerun()
-                elif r is not None and r.status_code == 401:
-                    st.error("Wrong username or password.")
-                else:
-                    st.error("Server is not responding (it may be waking up). Wait 30-60 seconds and try again.")
-        ui.html('<div class="login-note">Viewing is open to everyone. Sign in to open cases (inspector) or '
-                'record outcomes (manager).</div>')
+            sign_in(user, pw)
+        ui.html('<div class="login-foot">Inspectors open cases and add notes. Managers also record outcomes, '
+                'delete cases and export labels.</div>')
+    st.stop()
+
+# ---------------------------------------------------------------- sidebar (signed in)
+PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
+         "Inspection cases": "🗂️", "Monitoring": "📡"}
+with st.sidebar:
+    status_html = ui.brand(backend_online(), BACKEND)
+    a = st.session_state.auth
+    ui.profile_card(a["username"], a["role"], a.get("profile") or {})
+    if st.button("Sign out", key="logout", use_container_width=True):
+        st.session_state.auth = None
+        st.rerun()
+    ui.html('<div class="nav-divider"></div>')
+    page = st.radio("Navigate", list(PAGES), format_func=lambda p: f"{PAGES[p]}  {p}", label_visibility="collapsed")
     ui.html(status_html)
 
 # ---------------------------------------------------------------- dashboard
@@ -324,14 +332,15 @@ elif page == "Customer detail":
         if role():
             with st.form("new_case"):
                 col1, col2 = st.columns(2)
-                inspector = col1.text_input("Inspector name", value=st.session_state.auth["username"])
+                inspector = col1.text_input("Inspector name", value=(st.session_state.auth.get("profile") or {}).get(
+                    "full_name", st.session_state.auth["username"]))
                 notes = col2.text_input("Notes")
                 if st.form_submit_button("Open inspection case", type="primary"):
                     api("POST", "/cases", json={"customer_id": cid, "inspector": inspector, "notes": notes})
                     st.success("Case opened.")
                     st.rerun()
         else:
-            st.info("🔐 Log in as an inspector (sidebar) to open an inspection case.")
+            st.info("🔐 Sign in as an inspector to open an inspection case.")
 
 # ---------------------------------------------------------------- upload
 elif page == "Upload and score":
@@ -428,7 +437,7 @@ elif page == "Inspection cases":
         with c1:
             ui.section("✏️", "Update")
             if role() is None:
-                st.info("🔐 Log in (sidebar) to update cases.")
+                st.info("🔐 Sign in to update cases.")
             else:
                 with st.form("update"):
                     outcomes = ["open", "theft_confirmed", "normal"]

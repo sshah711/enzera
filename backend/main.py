@@ -120,7 +120,17 @@ def seed_scores():
 
 # ------------------------------------------------------------ users and roles
 # Demo accounts unless USERS is set as "name:password:role,name:password:role" (roles: inspector, manager).
-DEFAULT_USERS = "inspector:inspector123:inspector,manager:manager123:manager"
+DEFAULT_USERS = ("inspector:inspector123:inspector,inspector2:inspector456:inspector,"
+                 "manager:manager123:manager")
+# Dummy staff details shown after sign-in (demo data, not real people).
+PROFILES = {
+    "inspector": {"full_name": "Rahul Patel", "title": "Field Inspector", "employee_id": "INS-1021",
+                  "zone": "Ahmedabad East", "phone": "+91 90000 11021", "email": "rahul.patel@enzera.demo"},
+    "inspector2": {"full_name": "Priya Shah", "title": "Field Inspector", "employee_id": "INS-1034",
+                   "zone": "Gandhinagar", "phone": "+91 90000 11034", "email": "priya.shah@enzera.demo"},
+    "manager": {"full_name": "Anil Mehta", "title": "Revenue Protection Manager", "employee_id": "MGR-2007",
+                "zone": "All zones", "phone": "+91 90000 22007", "email": "anil.mehta@enzera.demo"},
+}
 ROLE_LEVEL = {"inspector": 1, "manager": 2}
 SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(32)  # set it in production so logins survive restarts
 TOKEN_HOURS = 12
@@ -235,12 +245,12 @@ def login(body: Login):
     if u is None or not hmac.compare_digest(u["hash"], _hash(body.password)):
         raise HTTPException(401, "Wrong username or password")
     return {"token": make_token(body.username, u["role"]), "username": body.username, "role": u["role"],
-            "expires_in_hours": TOKEN_HOURS}
+            "profile": PROFILES.get(body.username, {}), "expires_in_hours": TOKEN_HOURS}
 
 
 @app.get("/auth/me")
 def me(user=Depends(require("inspector"))):
-    return {"username": user["u"], "role": user["r"]}
+    return {"username": user["u"], "role": user["r"], "profile": PROFILES.get(user["u"], {})}
 
 
 # ------------------------------------------------------------ customers and scoring

@@ -47,12 +47,14 @@ Random ranking gives PR-AUC ≈ 0.085 and catches 10% of thieves in the top 10%.
 Write-ups: `docs/report.md`, `docs/explainability.md`, `docs/viva_prep.md`, `docs/slides.md`, `docs/demo_script.md`.
 
 ## Demo accounts
-Viewing is open to everyone. To open cases (inspector) or record outcomes (manager), log in in the sidebar:
+The app opens on a sign-in page. After signing in, the sidebar shows only the signed-in person's details
+(name, role, employee ID, zone, contact). All names and details below are dummy demo data.
 
-| Username | Password | Role |
-|---|---|---|
-| `inspector` | `inspector123` | open cases, add notes |
-| `manager` | `manager123` | + record outcomes, delete cases, export labels |
+| Username | Password | Shown as | Role: can do |
+|---|---|---|---|
+| `inspector` | `inspector123` | Rahul Patel, Field Inspector (INS-1021, Ahmedabad East) | inspector: open cases, add notes |
+| `inspector2` | `inspector456` | Priya Shah, Field Inspector (INS-1034, Gandhinagar) | inspector: open cases, add notes |
+| `manager` | `manager123` | Anil Mehta, Revenue Protection Manager (MGR-2007, all zones) | manager: + record outcomes, delete cases, export labels |
 
 These are demo credentials. For real use, set `USERS` and `SECRET_KEY` on the backend (see `.env.example`).
 
