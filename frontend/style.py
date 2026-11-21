@@ -3,9 +3,15 @@
 Kept separate from app.py so the page logic stays easy to read. All layouts use CSS grid with
 `auto-fit`, so cards wrap onto new rows on phones and tablets (responsive design).
 """
+import base64
 from html import escape
+from pathlib import Path
 
 import streamlit as st
+
+LOGO_PNG = Path(__file__).resolve().parent / "assets/logo.png"
+LOGO_URI = "data:image/svg+xml;base64," + base64.b64encode(
+    (Path(__file__).resolve().parent / "assets/logo.svg").read_bytes()).decode()
 
 BAND_COLOR = {"High": "#DC2626", "Medium": "#F59E0B", "Low": "#16A34A"}
 
@@ -29,12 +35,13 @@ html, body, [class*="css"], .stMarkdown, .stText, button, input, textarea, selec
   background: rgba(59,130,246,.28); box-shadow: inset 3px 0 0 #60A5FA;
 }
 .brand { display:flex; align-items:center; gap:.6rem; margin:.2rem 0 .3rem; }
-.brand .bolt { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; font-size:1.3rem;
-  background: linear-gradient(135deg,#F59E0B,#FBBF24); box-shadow:0 6px 18px rgba(245,158,11,.35); }
+.brand .logo { width:44px; height:44px; border-radius:50%; box-shadow:0 6px 18px rgba(34,211,238,.35); }
+/* hide Streamlit's own toolbar, menu and decoration line inside the app */
+[data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"], #MainMenu,
+[data-testid="stAppDeployButton"], [data-testid="stHeaderActionElements"] { display:none !important; }
+footer { visibility:hidden; }
 .brand .name { font-size:1.45rem; font-weight:800; letter-spacing:.06em; }
 .brand-sub { font-size:.78rem; opacity:.75; line-height:1.35; margin-bottom:1rem; }
-.status { font-size:.78rem; padding:.45rem .7rem; border-radius:10px; background:rgba(255,255,255,.07); margin-top:.6rem; }
-.dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
 
 /* ---------- hero banner ---------- */
 .hero { position:relative; overflow:hidden; border-radius:20px; padding:1.6rem 1.8rem; margin-bottom:1.3rem; color:#fff;
@@ -136,12 +143,9 @@ def html(s):
     st.markdown(s, unsafe_allow_html=True)
 
 
-def brand(backend_ok, backend_url):
-    color, text = ("#22C55E", "Backend online") if backend_ok else ("#F87171", "Backend offline / waking up")
-    html(f"""<div class="brand"><div class="bolt">⚡</div><div class="name">ENZERA</div></div>
+def brand():
+    html(f"""<div class="brand"><img class="logo" src="{LOGO_URI}" alt="ENZERA logo"><div class="name">ENZERA</div></div>
 <div class="brand-sub">Explainable electricity theft &amp; abnormal consumption detection</div>""")
-    return f'<div class="status"><span class="dot" style="background:{color}"></span>{text}<br>' \
-           f'<span style="opacity:.6">{escape(backend_url)}</span></div>'
 
 
 def hero(title, subtitle, tag=None):
@@ -233,8 +237,8 @@ LOGIN_CSS = """
 [data-testid="stHeader"] { background:transparent; }
 .block-container, [data-testid="stMainBlockContainer"] { padding-top:8vh; }
 .login-brand { text-align:center; color:#fff; margin-bottom:1.2rem; }
-.login-brand .bolt { width:58px; height:58px; margin:0 auto .7rem; border-radius:16px; display:grid; place-items:center;
-  font-size:1.8rem; background:linear-gradient(135deg,#F59E0B,#FBBF24); box-shadow:0 10px 28px rgba(245,158,11,.4); }
+.login-brand .logo { width:84px; height:84px; margin:0 auto .7rem; display:block; border-radius:50%;
+  box-shadow:0 10px 30px rgba(34,211,238,.35); }
 .login-brand .name { font-size:2rem; font-weight:800; letter-spacing:.08em; }
 .login-brand .sub { font-size:.9rem; opacity:.8; margin-top:.2rem; }
 .login-brand .h { font-size:1.1rem; font-weight:700; margin-top:1.4rem; }
@@ -259,7 +263,7 @@ def login_page_css():
 
 
 def login_brand():
-    html('<div class="login-brand"><div class="bolt">⚡</div><div class="name">ENZERA</div>'
+    html(f'<div class="login-brand"><img class="logo" src="{LOGO_URI}" alt="ENZERA logo"><div class="name">ENZERA</div>'
          '<div class="sub">Electricity theft detection for inspection teams</div>'
          '<div class="h">Staff sign in</div></div>')
 

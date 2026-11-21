@@ -32,7 +32,7 @@ def setting(name, default=None):
 BACKEND = setting("BACKEND_URL", "http://localhost:8000").rstrip("/")
 API_KEY = setting("API_KEY")
 
-st.set_page_config(page_title="ENZERA", page_icon="⚡", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="ENZERA", page_icon=str(ui.LOGO_PNG), layout="wide", initial_sidebar_state="auto")
 ui.inject_css()
 st.session_state.setdefault("auth", None)  # {"token", "username", "role"} after login
 
@@ -83,15 +83,6 @@ def api(method, path, **kw):
             detail = r.text
         show_error(f"Backend error {r.status_code}", str(detail))
     return r.json() if r.content else None
-
-
-@st.cache_data(ttl=30, show_spinner=False)
-def backend_online():
-    """Quick, non-blocking status check for the sidebar badge."""
-    try:
-        return requests.get(BACKEND + "/health", timeout=4).ok
-    except requests.RequestException:
-        return False
 
 
 def role():
@@ -162,7 +153,7 @@ if not st.session_state.auth:
 PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
          "Inspection cases": "🗂️", "Monitoring": "📡"}
 with st.sidebar:
-    status_html = ui.brand(backend_online(), BACKEND)
+    ui.brand()
     a = st.session_state.auth
     ui.profile_card(a["username"], a["role"], a.get("profile") or {})
     if st.button("Sign out", key="logout", use_container_width=True):
@@ -170,7 +161,6 @@ with st.sidebar:
         st.rerun()
     ui.html('<div class="nav-divider"></div>')
     page = st.radio("Navigate", list(PAGES), format_func=lambda p: f"{PAGES[p]}  {p}", label_visibility="collapsed")
-    ui.html(status_html)
 
 # ---------------------------------------------------------------- dashboard
 if page == "Risk dashboard":
