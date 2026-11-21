@@ -100,6 +100,13 @@ footer { visibility:hidden; }
   border-radius:10px; font-weight:600; padding:.5rem 1.1rem; }
 [data-testid="stFileUploaderDropzone"] { border-radius:14px; border:2px dashed #93C5FD; background:#F8FBFF; }
 [data-testid="stForm"] { background:#fff; border-radius:16px; border:1px solid #E5E9F2; }
+/* inputs inside white forms need their own background and border, or they disappear */
+[data-testid="stForm"] [data-baseweb="input"], [data-testid="stForm"] [data-baseweb="textarea"],
+[data-testid="stForm"] [data-baseweb="select"] > div { background:#F1F5F9 !important; border:1px solid #CBD5E1 !important;
+  border-radius:10px !important; }
+[data-testid="stForm"] [data-baseweb="input"]:focus-within, [data-testid="stForm"] [data-baseweb="textarea"]:focus-within {
+  border-color:#3B82F6 !important; box-shadow:0 0 0 3px rgba(59,130,246,.18); }
+[data-testid="stForm"] input, [data-testid="stForm"] textarea { background:transparent !important; }
 [data-testid="stImage"] img { border-radius:12px; border:1px solid #E5E9F2; background:#fff; }
 .stTabs [data-baseweb="tab-list"] { gap:6px; }
 .stTabs [data-baseweb="tab"] { border-radius:10px 10px 0 0; padding:.5rem 1rem; font-weight:600; }
