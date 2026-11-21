@@ -255,10 +255,13 @@ def me(user=Depends(require("inspector"))):
 
 # ------------------------------------------------------------ customers and scoring
 @app.get("/stats", dependencies=[Depends(check_key)])
-def stats():
+def stats(user=Depends(current_user)):
+    q = select(cases.c.status, func.count())
+    if user and user["r"] == "inspector":
+        q = q.where(cases.c.inspector == user["u"])  # an inspector only counts their own cases
     with db() as con:
         bands = dict(con.execute(select(risk_scores.c.risk_band, func.count()).group_by(risk_scores.c.risk_band)).all())
-        by_status = dict(con.execute(select(cases.c.status, func.count()).group_by(cases.c.status)).all())
+        by_status = dict(con.execute(q.group_by(cases.c.status)).all())
     return {"bands": bands, "cases": by_status, "threshold": STATE["bundle"]["threshold"],
             "model_version": STATE["bundle"]["version"]}
 
@@ -275,17 +278,18 @@ def list_customers(band: Optional[Literal["High", "Medium", "Low"]] = None, limi
 
 
 @app.get("/customers/{customer_id}", dependencies=[Depends(check_key)])
-def get_customer(customer_id: str):
+def get_customer(customer_id: str, user=Depends(current_user)):
     known_customer(customer_id)
+    q = visible_cases(user).where(cases.c.customer_id == customer_id).order_by(cases.c.case_id.desc())
     with db() as con:
         r = con.execute(select(risk_scores).where(risk_scores.c.customer_id == customer_id)).first()
-        cs = con.execute(select(cases).where(cases.c.customer_id == customer_id).order_by(cases.c.case_id.desc())).all()
+        cs = con.execute(q).all() if user else []
     _, _, dates, values = STATE["demo"]
     series = values[STATE["demo_index"][customer_id]]
     out = row_to_dict(r)
     out["dates"] = dates.strftime("%Y-%m-%d").tolist()
     out["consumption"] = [None if np.isnan(v) else round(float(v), 3) for v in series]
-    out["cases"] = [dict(c._mapping) for c in cs]
+    out["cases"] = [case_dict(c) for c in cs]
     out["explanation"] = explain_one(STATE["bundle"], STATE["demo_feats"].loc[[customer_id]])
     return out
 
@@ -341,7 +345,7 @@ def similar_customers(customer_id: str, k: int = 5):
                          "monthly": clean(monthly[n + 1])} for n, j in enumerate(nearest)]}
 
 
-@app.post("/predict", dependencies=[Depends(check_key)])
+@app.post("/predict", dependencies=[Depends(check_key), Depends(require("manager"))])
 async def predict(file: UploadFile = File(...)):
     """Score a CSV: long format (customer_id, date, consumption) or SGCC wide format.
     Also returns a drift report: how different the uploaded customers are from the training data."""
@@ -363,7 +367,7 @@ async def predict(file: UploadFile = File(...)):
             "drift": drift_report(STATE["bundle"], feats)}
 
 
-@app.get("/drift", dependencies=[Depends(check_key)])
+@app.get("/drift", dependencies=[Depends(check_key), Depends(require("manager"))])
 def drift_demo():
     """Drift of the demo customers vs the training data (expected: stable, same source)."""
     return {"population": "demo customers", "customers": len(STATE["demo_feats"]),
@@ -375,7 +379,7 @@ def features():
     return [{"feature": f, "label": FEATURE_INFO[f]} for f in FEATURE_NAMES]
 
 
-@app.get("/metrics")
+@app.get("/metrics", dependencies=[Depends(require("manager"))])
 def metrics():
     if not METRICS_PATH.exists():
         raise HTTPException(404, "metrics.json not found - run training first")
@@ -394,29 +398,63 @@ class CaseUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+def case_dict(r):
+    d = dict(r._mapping)
+    d["inspector_name"] = PROFILES.get(d["inspector"] or "", {}).get("full_name", d["inspector"])
+    return d
+
+
 def get_case(con, case_id):
     r = con.execute(select(cases).where(cases.c.case_id == case_id)).first()
     if r is None:
         raise HTTPException(404, "Case not found")
-    return dict(r._mapping)
+    return case_dict(r)
+
+
+def visible_cases(user):
+    """Managers see every case; an inspector sees only the cases assigned to them."""
+    q = select(cases)
+    if user and user["r"] == "inspector":
+        q = q.where(cases.c.inspector == user["u"])
+    return q
+
+
+def check_own_case(case, user):
+    if user["r"] == "inspector" and case["inspector"] != user["u"]:
+        raise HTTPException(403, "This case is assigned to another inspector")
+
+
+INSPECTORS = sorted(u for u, v in USERS.items() if v["role"] == "inspector")
+
+
+@app.get("/staff", dependencies=[Depends(check_key)])
+def staff(user=Depends(require("manager"))):
+    """Inspectors a manager can assign cases to."""
+    return [{"username": u, "full_name": PROFILES.get(u, {}).get("full_name", u)} for u in INSPECTORS]
 
 
 @app.get("/cases", dependencies=[Depends(check_key)])
-def list_cases(status: Optional[str] = None):
-    q = select(cases)
+def list_cases(status: Optional[str] = None, user=Depends(require("inspector"))):
+    q = visible_cases(user)
     if status:
         q = q.where(cases.c.status == status)
     with db() as con:
-        return [dict(r._mapping) for r in con.execute(q.order_by(cases.c.case_id.desc())).all()]
+        return [case_dict(r) for r in con.execute(q.order_by(cases.c.case_id.desc())).all()]
 
 
 @app.post("/cases", status_code=201, dependencies=[Depends(check_key)])
 def create_case(body: CaseCreate, user=Depends(require("inspector"))):
     known_customer(body.customer_id)
+    if user["r"] == "inspector":
+        assignee = user["u"]  # an inspector can only open cases for themselves
+    else:
+        assignee = body.inspector
+        if assignee not in INSPECTORS:
+            raise HTTPException(422, f"Assign the case to an inspector: {', '.join(INSPECTORS)}")
     stamp = now()
     with db() as con:
         case_id = con.execute(insert(cases).values(
-            customer_id=body.customer_id, status="open", inspector=body.inspector or user["u"],
+            customer_id=body.customer_id, status="open", inspector=assignee,
             notes=body.notes, created_at=stamp, updated_at=stamp)).inserted_primary_key[0]
         log_event(con, case_id, user, "created", None, "open", body.notes)
         return get_case(con, case_id)
@@ -426,6 +464,7 @@ def create_case(body: CaseCreate, user=Depends(require("inspector"))):
 def update_case(case_id: int, body: CaseUpdate, user=Depends(require("inspector"))):
     with db() as con:
         old = get_case(con, case_id)
+        check_own_case(old, user)
         changes_status = body.status is not None and body.status != old["status"]
         if changes_status and ROLE_LEVEL[user["r"]] < ROLE_LEVEL["manager"]:
             raise HTTPException(403, "Only a manager can record an outcome or reopen a case")
@@ -449,8 +488,10 @@ def delete_case(case_id: int, user=Depends(require("manager"))):
 
 
 @app.get("/cases/{case_id}/history", dependencies=[Depends(check_key)])
-def case_history(case_id: int):
+def case_history(case_id: int, user=Depends(require("inspector"))):
     with db() as con:
+        if user["r"] == "inspector":
+            check_own_case(get_case(con, case_id), user)
         rows = con.execute(select(case_events).where(case_events.c.case_id == case_id)
                            .order_by(case_events.c.event_id)).all()
     if not rows:

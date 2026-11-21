@@ -7,7 +7,7 @@ Speaker notes are in *italics*.
 
 ## 1. Title
 **ENZERA: An Explainable AI-Based System for Electricity Theft and Abnormal Consumption Detection**
-- Member A name · Member B name, M.Tech Data Science, Applied Machine Learning
+- Sakshi Shah (26MCD021) · Dhruvi Patel (26MCD015), M.Tech Data Science, Applied Machine Learning
 - Live: enzera.streamlit.app · github.com/sshah711/enzera
 - Visual: dashboard screenshot
 
@@ -72,7 +72,7 @@ Speaker notes are in *italics*.
 
 ## 12. Architecture and deployment
 - FastAPI + SQLAlchemy (SQLite or **PostgreSQL**) on Render (Docker) ↔ Streamlit Cloud
-- MLflow tracking; GitHub Actions CI: 20 tests (also pass on PostgreSQL 16) + Docker build
+- MLflow tracking; GitHub Actions CI: 21 tests + Docker build
 - Visual: architecture diagram (report Section 8)
 
 ## 13. Limitations and future work

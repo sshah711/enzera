@@ -21,7 +21,7 @@ retraining from confirmed outcomes, and monitoring data drift.
 | **Cases** | Inspector / manager roles, full audit trail, PDF inspection sheet |
 | **Retraining** | `GET /labels` + `python -m ml.retrain`: retrain with confirmed outcomes, promote only if not worse |
 | **Monitoring** | Population Stability Index per feature, for the live customers and for every upload |
-| **Engineering** | FastAPI + SQLAlchemy (SQLite or PostgreSQL), Streamlit, MLflow, Docker, 20 tests + CI |
+| **Engineering** | FastAPI + SQLAlchemy (SQLite or PostgreSQL), Streamlit, MLflow, Docker, 21 tests + CI |
 
 ## Results (held-out test set, 6,356 customers)
 From `reports/metrics.json` (model `xgb-20261114-1557`). Thresholds tuned for best F1 on a validation split.
@@ -52,11 +52,27 @@ The app opens on a sign-in page. After signing in, the sidebar shows only the si
 
 | Username | Password | Shown as | Role: can do |
 |---|---|---|---|
-| `inspector` | `inspector123` | Rahul Patel, Field Inspector (INS-1021, Ahmedabad East) | inspector: open cases, add notes |
-| `inspector2` | `inspector456` | Priya Shah, Field Inspector (INS-1034, Gandhinagar) | inspector: open cases, add notes |
-| `manager` | `manager123` | Anil Mehta, Revenue Protection Manager (MGR-2007, all zones) | manager: + record outcomes, delete cases, export labels |
+| `inspector` | `inspector123` | Rahul Patel, Field Inspector (INS-1021, Ahmedabad East) | inspector |
+| `inspector2` | `inspector456` | Priya Shah, Field Inspector (INS-1034, Gandhinagar) | inspector |
+| `manager` | `manager123` | Anil Mehta, Revenue Protection Manager (MGR-2007, all zones) | manager |
+
+**Role-based access** (enforced by the app and by the API):
+- **Inspector:** 3 pages (Risk dashboard, Customer detail, My inspection cases); sees only the cases assigned to them;
+  can open a case for themselves and add visit notes.
+- **Manager:** all 6 pages and every case; assigns cases to inspectors, records outcomes, deletes cases, uploads files,
+  uses the planner and monitoring, and exports labels.
 
 These are demo credentials. For real use, set `USERS` and `SECRET_KEY` on the backend (see `.env.example`).
+
+## Test files for "Upload and score" (`data/samples/`)
+| File | What it is |
+|---|---|
+| `test_upload_500_customers.csv` | 500 real SGCC customers never seen by the model or the app, full 1,034-day history (wide format) |
+| `test_upload_500_answer_key.csv` | the true label of each of those 500 customers, to compare with the model's ranking |
+| `test_upload_one_year.csv` | 40 unseen customers, last 365 days only (long format): triggers the drift warning |
+| `test_upload_answer_key.csv` | true labels for the 40 customers above |
+| `test_upload_wrong_format.csv` | a file without date columns, to show the error message |
+| `sample_upload.csv` | 50 demo customers, last 365 days (long format) |
 
 ## Run it
 ```bash

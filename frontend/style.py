@@ -224,8 +224,9 @@ def timeline(events):
     html('<div class="card">' + "".join(items) + "</div>")
 
 
-ROLE_STYLE = {"manager": ("#7C3AED", "Record outcomes, delete cases, export labels"),
-              "inspector": ("#2563EB", "Open cases and add inspection notes")}
+ROLE_STYLE = {"manager": ("#7C3AED", "Everything: all pages and cases, assign inspectors, record outcomes, "
+                                      "upload, plan, monitor, export labels"),
+              "inspector": ("#2563EB", "View risk and explanations, open own cases, add visit notes")}
 
 
 LOGIN_CSS = """

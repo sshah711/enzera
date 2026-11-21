@@ -123,13 +123,14 @@ def test_customer_list_sorted_with_reasons(client):
 def test_predict_sample_upload(client):
     sample = ROOT / "data/samples/sample_upload.csv"
     with open(sample, "rb") as fh:
-        r = client.post("/predict", files={"file": ("s.csv", fh, "text/csv")})
+        r = client.post("/predict", files={"file": ("s.csv", fh, "text/csv")}, headers=login(client, "manager", "manager123"))
     assert r.status_code == 200
     assert len(r.json()["results"]) == 50
 
 
 def test_predict_rejects_bad_csv(client):
-    r = client.post("/predict", files={"file": ("bad.csv", b"a,b\n1,2\n", "text/csv")})
+    r = client.post("/predict", files={"file": ("bad.csv", b"a,b\n1,2\n", "text/csv")},
+                    headers=login(client, "manager", "manager123"))
     assert r.status_code == 422
 
 
@@ -146,13 +147,13 @@ def test_login_rejects_wrong_password(client):
 def test_case_lifecycle(client):
     mgr = login(client, "manager", "manager123")
     cid = client.get("/customers", params={"limit": 1}).json()[0]["customer_id"]
-    case = client.post("/cases", json={"customer_id": cid, "inspector": "Test"}, headers=mgr).json()
+    case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr).json()
     assert case["status"] == "open"
     upd = client.patch(f"/cases/{case['case_id']}", json={"status": "theft_confirmed"}, headers=mgr).json()
     assert upd["status"] == "theft_confirmed"
     assert client.patch(f"/cases/{case['case_id']}", json={"status": "bogus"}, headers=mgr).status_code == 422
     assert client.delete(f"/cases/{case['case_id']}", headers=mgr).status_code == 204
-    history = client.get(f"/cases/{case['case_id']}/history").json()
+    history = client.get(f"/cases/{case['case_id']}/history", headers=mgr).json()
     assert [e["action"] for e in history] == ["created", "status_changed", "deleted"]
     assert history[1]["from_status"] == "open" and history[1]["to_status"] == "theft_confirmed"
 
@@ -173,7 +174,7 @@ def test_roles_are_enforced(client):
 def test_labels_export_for_retraining(client):
     mgr = login(client, "manager", "manager123")
     cid = client.get("/customers", params={"limit": 1, "band": "Low"}).json()[0]["customer_id"]
-    case = client.post("/cases", json={"customer_id": cid}, headers=mgr).json()
+    case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector2"}, headers=mgr).json()
     client.patch(f"/cases/{case['case_id']}", json={"status": "normal"}, headers=mgr)
     labels = {x["customer_id"]: x["label"] for x in client.get("/labels", headers=mgr).json()}
     assert labels[cid] == 0
@@ -207,9 +208,33 @@ def test_similar_customers(client):
 
 
 def test_drift_report(client):
-    rows = client.get("/drift").json()["features"]
+    mgr = login(client, "manager", "manager123")
+    rows = client.get("/drift", headers=mgr).json()["features"]
     assert len(rows) == len(FEATURE_NAMES) and all(r["psi"] >= 0 for r in rows)
     sample = ROOT / "data/samples/sample_upload.csv"
     with open(sample, "rb") as fh:
-        res = client.post("/predict", files={"file": ("s.csv", fh, "text/csv")}).json()
+        res = client.post("/predict", files={"file": ("s.csv", fh, "text/csv")}, headers=mgr).json()
     assert len(res["drift"]) == len(FEATURE_NAMES)
+
+
+def test_inspector_sees_only_own_cases_and_no_manager_features(client):
+    mgr, insp, insp2 = (login(client, u, p) for u, p in
+                        (("manager", "manager123"), ("inspector", "inspector123"), ("inspector2", "inspector456")))
+    cid = client.get("/customers", params={"limit": 3}).json()[2]["customer_id"]
+    mine = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr).json()
+    other = client.post("/cases", json={"customer_id": cid, "inspector": "inspector2"}, headers=mgr).json()
+    assert mine["inspector_name"] == "Rahul Patel"
+    seen = {c["case_id"] for c in client.get("/cases", headers=insp).json()}
+    assert mine["case_id"] in seen and other["case_id"] not in seen
+    assert {mine["case_id"], other["case_id"]} <= {c["case_id"] for c in client.get("/cases", headers=mgr).json()}
+    assert client.patch(f"/cases/{other['case_id']}", json={"notes": "x"}, headers=insp).status_code == 403
+    assert client.get(f"/cases/{other['case_id']}/history", headers=insp).status_code == 403
+    assert client.get("/cases").status_code == 401                                   # not signed in
+    for path in ("/drift", "/metrics", "/staff"):                                    # manager-only
+        assert client.get(path, headers=insp).status_code == 403
+        assert client.get(path, headers=mgr).status_code == 200
+    bad = client.post("/predict", files={"file": ("s.csv", b"a,b\n1,2\n", "text/csv")}, headers=insp)
+    assert bad.status_code == 403
+    assert client.post("/cases", json={"customer_id": cid, "inspector": "nobody"}, headers=mgr).status_code == 422
+    detail = client.get(f"/customers/{cid}", headers=insp2).json()
+    assert {c["inspector"] for c in detail["cases"]} == {"inspector2"}

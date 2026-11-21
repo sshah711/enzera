@@ -149,9 +149,17 @@ if not st.session_state.auth:
                 'delete cases and export labels.</div>')
     st.stop()
 
+CASE_COLS = ["case_id", "customer_id", "status", "inspector_name", "notes", "updated_at"]
+CASE_CONFIG = {"case_id": "Case", "customer_id": "Customer", "status": "Status", "inspector_name": "Inspector",
+               "notes": "Notes", "updated_at": "Last update"}
+
 # ---------------------------------------------------------------- sidebar (signed in)
-PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
-         "Inspection cases": "🗂️", "Monitoring": "📡"}
+ALL_PAGES = {"Risk dashboard": "📊", "Customer detail": "🔍", "Upload and score": "📤", "Inspection planner": "🧭",
+             "Inspection cases": "🗂️", "Monitoring": "📡"}
+# Each role sees only what it needs: inspectors work on their own visits, managers see and control everything.
+ROLE_PAGES = {"inspector": ["Risk dashboard", "Customer detail", "Inspection cases"], "manager": list(ALL_PAGES)}
+PAGES = {p: ALL_PAGES[p] for p in ROLE_PAGES.get(st.session_state.auth["role"], ["Risk dashboard"])}
+CASES_LABEL = "My inspection cases" if st.session_state.auth["role"] == "inspector" else "Inspection cases"
 with st.sidebar:
     ui.brand()
     a = st.session_state.auth
@@ -160,7 +168,8 @@ with st.sidebar:
         st.session_state.auth = None
         st.rerun()
     ui.html('<div class="nav-divider"></div>')
-    page = st.radio("Navigate", list(PAGES), format_func=lambda p: f"{PAGES[p]}  {p}", label_visibility="collapsed")
+    page = st.radio("Navigate", list(PAGES), label_visibility="collapsed",
+                    format_func=lambda p: f"{PAGES[p]}  {CASES_LABEL if p == 'Inspection cases' else p}")
 
 # ---------------------------------------------------------------- dashboard
 if page == "Risk dashboard":
@@ -174,7 +183,8 @@ if page == "Risk dashboard":
         ("High risk", bands.get("High", 0), f"{bands.get('High', 0) / max(total, 1):.1%} - inspect first", ui.BAND_COLOR["High"]),
         ("Medium risk", bands.get("Medium", 0), f"{bands.get('Medium', 0) / max(total, 1):.1%} of customers", ui.BAND_COLOR["Medium"]),
         ("Low risk", bands.get("Low", 0), f"{bands.get('Low', 0) / max(total, 1):.1%} of customers", ui.BAND_COLOR["Low"]),
-        ("Open cases", stats["cases"].get("open", 0), f"threshold {stats['threshold']:.2f}", "#7C3AED"),
+        ("My open cases" if role() == "inspector" else "Open cases", stats["cases"].get("open", 0),
+         f"threshold {stats['threshold']:.2f}", "#7C3AED"),
     ])
     all_rows = pd.DataFrame(api("GET", "/customers", params={"limit": 1000}))
     if not all_rows.empty:
@@ -318,19 +328,25 @@ elif page == "Customer detail":
         d2.download_button("⬇️ Download explanation (CSV)", shap_csv.to_csv(index=False).encode(),
                            f"enzera_explanation_{cid[:12]}.csv", "text/csv", use_container_width=True)
         if c["cases"]:
-            st.dataframe(pd.DataFrame(c["cases"]), hide_index=True, use_container_width=True)
-        if role():
-            with st.form("new_case"):
-                col1, col2 = st.columns(2)
-                inspector = col1.text_input("Inspector name", value=(st.session_state.auth.get("profile") or {}).get(
-                    "full_name", st.session_state.auth["username"]))
-                notes = col2.text_input("Notes")
-                if st.form_submit_button("Open inspection case", type="primary"):
-                    api("POST", "/cases", json={"customer_id": cid, "inspector": inspector, "notes": notes})
-                    st.success("Case opened.")
-                    st.rerun()
-        else:
-            st.info("🔐 Sign in as an inspector to open an inspection case.")
+            st.caption("All cases for this customer" if role() == "manager" else "Your cases for this customer")
+            st.dataframe(pd.DataFrame(c["cases"])[CASE_COLS], column_config=CASE_CONFIG, hide_index=True,
+                         use_container_width=True)
+        with st.form("new_case"):
+            col1, col2 = st.columns(2)
+            if role() == "manager":
+                staff = api("GET", "/staff")
+                names = {s_["username"]: s_["full_name"] for s_ in staff}
+                inspector = col1.selectbox("Assign to inspector", list(names),
+                                           format_func=lambda u: f"{names[u]} ({u})")
+            else:
+                inspector = None
+                col1.text_input("Assigned to", value=(a.get("profile") or {}).get("full_name", a["username"]),
+                                disabled=True, help="An inspector can open cases only for themselves")
+            notes = col2.text_input("Notes")
+            if st.form_submit_button("Open inspection case", type="primary"):
+                api("POST", "/cases", json={"customer_id": cid, "inspector": inspector, "notes": notes})
+                st.success("Case opened.")
+                st.rerun()
 
 # ---------------------------------------------------------------- upload
 elif page == "Upload and score":
@@ -406,8 +422,12 @@ elif page == "Inspection planner":
 
 # ---------------------------------------------------------------- cases
 elif page == "Inspection cases":
-    ui.hero("Inspection cases", "Track field inspections from open to outcome, with a full audit trail. "
-            "Confirmed outcomes become new labelled data for retraining the model.", tag="Workflow")
+    if role() == "manager":
+        ui.hero("Inspection cases", "Every inspection case across all inspectors, from open to outcome, with a full "
+                "audit trail. Confirmed outcomes become new labelled data for retraining the model.", tag="Workflow")
+    else:
+        ui.hero("My inspection cases", "The visits assigned to you. Add what you found on site; your manager records "
+                "the final outcome.", tag="Workflow")
     all_cases = api("GET", "/cases")
     by = pd.Series([x["status"] for x in all_cases]).value_counts() if all_cases else pd.Series(dtype=int)
     ui.kpis([("All cases", len(all_cases), "", "#2563EB"),
@@ -419,26 +439,31 @@ elif page == "Inspection cases":
     if not cases:
         st.info("No cases here yet. Open one from 🔍 Customer detail → Inspection.")
     else:
-        st.dataframe(pd.DataFrame(cases), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(cases)[CASE_COLS], column_config=CASE_CONFIG, hide_index=True,
+                     use_container_width=True)
         case_id = st.selectbox("Select a case", [x["case_id"] for x in cases],
                                format_func=lambda i: next(f"#{x['case_id']} · {x['customer_id'][:12]}… · {x['status']}"
                                                           for x in cases if x["case_id"] == i))
         c1, c2 = st.columns([3, 2], gap="medium")
         with c1:
             ui.section("✏️", "Update")
-            if role() is None:
-                st.info("🔐 Sign in to update cases.")
+            if role() == "inspector":
+                with st.form("update"):
+                    notes = st.text_area("What did you find on site?",
+                                         placeholder="e.g. Meter seal broken, bypass wire found")
+                    if st.form_submit_button("Save note", type="primary") and notes:
+                        api("PATCH", f"/cases/{case_id}", json={"notes": notes})
+                        st.success("Note saved. Your manager will record the outcome.")
+                        st.rerun()
             else:
                 with st.form("update"):
                     outcomes = ["open", "theft_confirmed", "normal"]
                     current = next(x["status"] for x in cases if x["case_id"] == case_id)
-                    new_status = st.selectbox("Outcome", outcomes, index=outcomes.index(current),
-                                              disabled=role() != "manager",
-                                              help=None if role() == "manager" else "Only managers can record outcomes")
+                    new_status = st.selectbox("Outcome", outcomes, index=outcomes.index(current))
                     notes = st.text_area("Notes")
                     b1, b2 = st.columns(2)
                     save = b1.form_submit_button("Save", type="primary")
-                    remove = b2.form_submit_button("Delete case", disabled=role() != "manager")
+                    remove = b2.form_submit_button("Delete case")
                     if save:
                         body = {**({"status": new_status} if role() == "manager" else {}), **({"notes": notes} if notes else {})}
                         api("PATCH", f"/cases/{case_id}", json=body)
@@ -452,12 +477,12 @@ elif page == "Inspection cases":
             ui.section("🕓", "History")
             ui.timeline(api("GET", f"/cases/{case_id}/history"))
 
-    ui.section("🔁", "Learning from inspections")
-    decided = by.get("theft_confirmed", 0) + by.get("normal", 0)
-    st.write(f"**{decided}** decided case(s) so far. Every confirmed outcome (theft or normal) becomes a verified "
-             "training label. The model is retrained regularly with these labels, and a new model goes live only "
-             "if it performs at least as well as the current one.")
     if role() == "manager":
+        ui.section("🔁", "Learning from inspections")
+        decided = by.get("theft_confirmed", 0) + by.get("normal", 0)
+        st.write(f"**{decided}** decided case(s) so far. Every confirmed outcome (theft or normal) becomes a verified "
+                 "training label. The model is retrained regularly with these labels, and a new model goes live only "
+                 "if it performs at least as well as the current one.")
         labels = api("GET", "/labels")
         if labels:
             st.download_button("⬇️ Download labels (CSV)", pd.DataFrame(labels).to_csv(index=False).encode(),
