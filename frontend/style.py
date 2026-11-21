@@ -10,8 +10,7 @@ from pathlib import Path
 import streamlit as st
 
 LOGO_PNG = Path(__file__).resolve().parent / "assets/logo.png"
-LOGO_URI = "data:image/svg+xml;base64," + base64.b64encode(
-    (Path(__file__).resolve().parent / "assets/logo.svg").read_bytes()).decode()
+LOGO_URI = "data:image/png;base64," + base64.b64encode(LOGO_PNG.read_bytes()).decode()
 
 BAND_COLOR = {"High": "#DC2626", "Medium": "#F59E0B", "Low": "#16A34A"}
 
@@ -237,7 +236,7 @@ LOGIN_CSS = """
 [data-testid="stHeader"] { background:transparent; }
 .block-container, [data-testid="stMainBlockContainer"] { padding-top:8vh; }
 .login-brand { text-align:center; color:#fff; margin-bottom:1.2rem; }
-.login-brand .logo { width:84px; height:84px; margin:0 auto .7rem; display:block; border-radius:50%;
+.login-brand .logo { width:150px; height:150px; margin:0 auto .7rem; display:block; border-radius:50%;
   box-shadow:0 10px 30px rgba(34,211,238,.35); }
 .login-brand .name { font-size:2rem; font-weight:800; letter-spacing:.08em; }
 .login-brand .sub { font-size:.9rem; opacity:.8; margin-top:.2rem; }
@@ -263,7 +262,7 @@ def login_page_css():
 
 
 def login_brand():
-    html(f'<div class="login-brand"><img class="logo" src="{LOGO_URI}" alt="ENZERA logo"><div class="name">ENZERA</div>'
+    html(f'<div class="login-brand"><img class="logo" src="{LOGO_URI}" alt="ENZERA logo">'
          '<div class="sub">Electricity theft detection for inspection teams</div>'
          '<div class="h">Staff sign in</div></div>')
 
