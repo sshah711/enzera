@@ -157,7 +157,8 @@ def brand():
 
 def hero(title, subtitle, tag=None):
     t = f'<div class="tag">{escape(tag)}</div>' if tag else ""
-    html(f'<div class="hero">{t}<h1>{escape(title)}</h1><p>{subtitle}</p></div>')
+    sub = f"<p>{subtitle}</p>" if subtitle else ""
+    html(f'<div class="hero">{t}<h1>{escape(title)}</h1>{sub}</div>')
 
 
 def kpis(items):
@@ -203,7 +204,6 @@ def reason_cards(reasons):
     cards = "".join(
         f'<div class="reason"><div class="r-label">{escape(r["label"])}</div>'
         f'<div class="r-value">{escape(str(r["value"]))}</div>'
-        f'<div class="r-impact">raises risk by {r["impact"]:+.2f} (SHAP)</div>'
         f'<div class="bar"><span style="width:{r["impact"] / top * 100:.0f}%"></span></div></div>'
         for r in reasons)
     html(f'<div class="reasons">{cards}</div>')
@@ -234,7 +234,7 @@ def timeline(events):
 
 ROLE_STYLE = {"manager": ("#7C3AED", "Everything: all pages and cases, assign inspectors, record outcomes, "
                                       "upload, plan, monitor, export labels"),
-              "inspector": ("#2563EB", "View risk and explanations, open own cases, add visit notes")}
+              "inspector": ("#2563EB", "See assigned cases and their explanations, add visit notes")}
 
 
 LOGIN_CSS = """

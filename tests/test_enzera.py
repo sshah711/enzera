@@ -113,7 +113,7 @@ def test_health(client):
 
 
 def test_customer_list_sorted_with_reasons(client):
-    rows = client.get("/customers", params={"limit": 20}).json()
+    rows = client.get("/customers", headers=mgr_h(client), params={"limit": 20}).json()
     scores = [r["risk_score"] for r in rows]
     assert scores == sorted(scores, reverse=True)
     assert all(0 <= s <= 1 for s in scores)
@@ -134,6 +134,10 @@ def test_predict_rejects_bad_csv(client):
     assert r.status_code == 422
 
 
+def mgr_h(client):
+    return login(client, "manager", "manager123")
+
+
 def login(client, user, pw):
     r = client.post("/auth/login", json={"username": user, "password": pw})
     assert r.status_code == 200
@@ -146,7 +150,7 @@ def test_login_rejects_wrong_password(client):
 
 def test_case_lifecycle(client):
     mgr = login(client, "manager", "manager123")
-    cid = client.get("/customers", params={"limit": 1}).json()[0]["customer_id"]
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 1}).json()[0]["customer_id"]
     case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr).json()
     assert case["status"] == "open"
     upd = client.patch(f"/cases/{case['case_id']}", json={"status": "theft_confirmed"}, headers=mgr).json()
@@ -159,21 +163,24 @@ def test_case_lifecycle(client):
 
 
 def test_roles_are_enforced(client):
-    cid = client.get("/customers", params={"limit": 1}).json()[0]["customer_id"]
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 1}).json()[0]["customer_id"]
     assert client.post("/cases", json={"customer_id": cid}).status_code == 401          # not logged in
     insp = login(client, "inspector", "inspector123")
-    case = client.post("/cases", json={"customer_id": cid}, headers=insp).json()
+    assert client.post("/cases", json={"customer_id": cid}, headers=insp).status_code == 403  # only managers assign
+    case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr_h(client)).json()
     assert case["inspector"] == "inspector"
     assert client.patch(f"/cases/{case['case_id']}", json={"notes": "visited"}, headers=insp).status_code == 200
     assert client.patch(f"/cases/{case['case_id']}", json={"status": "normal"}, headers=insp).status_code == 403
     assert client.delete(f"/cases/{case['case_id']}", headers=insp).status_code == 403
     assert client.get("/labels", headers=insp).status_code == 403
-    assert client.post("/cases", json={"customer_id": "NOT-A-CUSTOMER"}, headers=insp).status_code == 404
+    assert client.post("/cases", json={"customer_id": "NOT-A-CUSTOMER", "inspector": "inspector"},
+                       headers=mgr_h(client)).status_code == 404
+    assert client.get("/customers", headers=insp).status_code == 403                 # no customer list for inspectors
 
 
 def test_labels_export_for_retraining(client):
     mgr = login(client, "manager", "manager123")
-    cid = client.get("/customers", params={"limit": 1, "band": "Low"}).json()[0]["customer_id"]
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 1, "band": "Low"}).json()[0]["customer_id"]
     case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector2"}, headers=mgr).json()
     client.patch(f"/cases/{case['case_id']}", json={"status": "normal"}, headers=mgr)
     labels = {x["customer_id"]: x["label"] for x in client.get("/labels", headers=mgr).json()}
@@ -181,8 +188,8 @@ def test_labels_export_for_retraining(client):
 
 
 def test_explanation_adds_up_to_score(client):
-    c = client.get("/customers", params={"limit": 1}).json()[0]
-    d = client.get(f"/customers/{c['customer_id']}").json()
+    c = client.get("/customers", headers=mgr_h(client), params={"limit": 1}).json()[0]
+    d = client.get(f"/customers/{c['customer_id']}", headers=mgr_h(client)).json()
     e = d["explanation"]
     assert len(e["contributions"]) == len(FEATURE_NAMES)
     log_odds = e["base_value"] + sum(x["impact"] for x in e["contributions"])
@@ -191,17 +198,17 @@ def test_explanation_adds_up_to_score(client):
 
 
 def test_what_if_changes_score_only_when_features_change(client):
-    cid = client.get("/customers", params={"limit": 1}).json()[0]["customer_id"]
-    same = client.post("/whatif", json={"customer_id": cid, "changes": {}}).json()
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 1}).json()[0]["customer_id"]
+    same = client.post("/whatif", headers=mgr_h(client), json={"customer_id": cid, "changes": {}}).json()
     assert same["original"] == same["what_if"]
-    changed = client.post("/whatif", json={"customer_id": cid, "changes": {"std_daily": 0.0, "max_daily": 1.0}}).json()
+    changed = client.post("/whatif", headers=mgr_h(client), json={"customer_id": cid, "changes": {"std_daily": 0.0, "max_daily": 1.0}}).json()
     assert changed["what_if"]["risk_score"] != changed["original"]["risk_score"]
-    assert client.post("/whatif", json={"customer_id": cid, "changes": {"bogus": 1}}).status_code == 422
+    assert client.post("/whatif", headers=mgr_h(client), json={"customer_id": cid, "changes": {"bogus": 1}}).status_code == 422
 
 
 def test_similar_customers(client):
-    cid = client.get("/customers", params={"limit": 1}).json()[0]["customer_id"]
-    r = client.get(f"/customers/{cid}/similar", params={"k": 3}).json()
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 1}).json()[0]["customer_id"]
+    r = client.get(f"/customers/{cid}/similar", headers=mgr_h(client), params={"k": 3}).json()
     assert len(r["similar"]) == 3 and cid not in [s["customer_id"] for s in r["similar"]]
     d = [s["distance"] for s in r["similar"]]
     assert d == sorted(d)
@@ -220,7 +227,7 @@ def test_drift_report(client):
 def test_inspector_sees_only_own_cases_and_no_manager_features(client):
     mgr, insp, insp2 = (login(client, u, p) for u, p in
                         (("manager", "manager123"), ("inspector", "inspector123"), ("inspector2", "inspector456")))
-    cid = client.get("/customers", params={"limit": 3}).json()[2]["customer_id"]
+    cid = client.get("/customers", headers=mgr_h(client), params={"limit": 3}).json()[2]["customer_id"]
     mine = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr).json()
     other = client.post("/cases", json={"customer_id": cid, "inspector": "inspector2"}, headers=mgr).json()
     assert mine["inspector_name"] == "Rahul Patel"
@@ -238,3 +245,40 @@ def test_inspector_sees_only_own_cases_and_no_manager_features(client):
     assert client.post("/cases", json={"customer_id": cid, "inspector": "nobody"}, headers=mgr).status_code == 422
     detail = client.get(f"/customers/{cid}", headers=insp2).json()
     assert {c["inspector"] for c in detail["cases"]} == {"inspector2"}
+
+
+def test_inspector_opens_only_customers_of_own_cases(client):
+    insp = login(client, "inspector2", "inspector456")
+    rows = client.get("/customers", headers=mgr_h(client), params={"limit": 6}).json()
+    mine, other = rows[4]["customer_id"], rows[5]["customer_id"]
+    client.post("/cases", json={"customer_id": mine, "inspector": "inspector2"}, headers=mgr_h(client))
+    assert client.get(f"/customers/{mine}", headers=insp).status_code == 200
+    assert client.get(f"/customers/{other}", headers=insp).status_code == 403
+    assert client.post("/whatif", json={"customer_id": other, "changes": {}}, headers=insp).status_code == 403
+
+
+def test_decided_customers_leave_the_pending_list(client):
+    mgr = mgr_h(client)
+    cid = client.get("/customers", headers=mgr, params={"limit": 1, "pending_only": "true"}).json()[0]["customer_id"]
+    case = client.post("/cases", json={"customer_id": cid, "inspector": "inspector"}, headers=mgr).json()
+    client.patch(f"/cases/{case['case_id']}", json={"status": "theft_confirmed"}, headers=mgr)
+    pending = {r["customer_id"] for r in client.get("/customers", headers=mgr,
+                                                    params={"limit": 5000, "pending_only": "true"}).json()}
+    assert cid not in pending
+    assert client.get("/stats", headers=mgr).json()["decided_customers"] >= 1
+
+
+def test_uploaded_customers_appear_on_the_dashboard(client):
+    mgr = mgr_h(client)
+    with open(ROOT / "data/samples/test_upload_one_year.csv", "rb") as fh:
+        res = client.post("/predict", files={"file": ("u.csv", fh, "text/csv")}, headers=mgr).json()
+    assert res["added_to_dashboard"] == 40 and res["already_in_system"] == 0
+    listed = {r["customer_id"] for r in client.get("/customers", headers=mgr, params={"limit": 5000}).json()}
+    new_id = res["results"][0]["customer_id"]
+    assert new_id in listed
+    d = client.get(f"/customers/{new_id}", headers=mgr).json()
+    assert d["uploaded"] and len(d["consumption"]) == 365
+    assert len(client.get(f"/customers/{new_id}/similar", headers=mgr, params={"k": 3}).json()["similar"]) == 3
+    with open(ROOT / "data/samples/sample_upload.csv", "rb") as fh:   # demo customers are not duplicated
+        again = client.post("/predict", files={"file": ("s.csv", fh, "text/csv")}, headers=mgr).json()
+    assert again["added_to_dashboard"] == 0

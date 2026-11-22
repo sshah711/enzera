@@ -70,6 +70,11 @@ cases = Table(
     Column("status", String(20), nullable=False, default="open"),
     Column("inspector", String(100)), Column("notes", Text),
     Column("created_at", String(40)), Column("updated_at", String(40)))
+uploads = Table(  # customers added through "Upload and score": raw readings, re-scored at every start
+    "uploaded_customers", meta,
+    Column("customer_id", String(64), primary_key=True),
+    Column("dates", Text), Column("consumption", Text),
+    Column("uploaded_at", String(40)), Column("uploaded_by", String(100)))
 case_events = Table(  # audit trail: one row per action on a case
     "case_events", meta,
     Column("event_id", Integer, primary_key=True, autoincrement=True),
@@ -98,6 +103,54 @@ def log_event(con, case_id, user, action, from_status=None, to_status=None, note
     con.execute(insert(case_events).values(
         case_id=case_id, at=now(), username=user["u"], role=user["r"], action=action,
         from_status=from_status, to_status=to_status, notes=notes))
+
+
+def customer_data(customer_id):
+    """(dates, daily values, 17-feature row) for a demo customer or an uploaded one."""
+    if customer_id in STATE["extra"]:
+        e = STATE["extra"][customer_id]
+        return e["dates"], e["values"], e["feats"]
+    _, _, dates, values = STATE["demo"]
+    return dates, values[STATE["demo_index"][customer_id]], STATE["demo_feats"].loc[[customer_id]]
+
+
+def add_uploaded(ids, dates, values, user=None, stamp=None, save=True):
+    """Score uploaded customers, keep them in memory, write their scores (and raw readings) to the database.
+    Customers that already exist among the demo customers are skipped. Returns the IDs added."""
+    new = [i for i, cid in enumerate(ids) if str(cid) not in STATE["demo_index"]]
+    if not new:
+        return []
+    feats = compute_features(values[new], dates)
+    new_ids = [str(ids[i]) for i in new]
+    feats.index = new_ids
+    scored = score_features(STATE["bundle"], feats, new_ids)
+    stamp = stamp or now()
+    day = dates.strftime("%Y-%m-%d").tolist()
+    with db() as con:
+        con.execute(delete(risk_scores).where(risk_scores.c.customer_id.in_(new_ids)))
+        con.execute(insert(risk_scores), [
+            {"customer_id": r.customer_id, "risk_score": r.risk_score, "theft_probability": r.theft_probability,
+             "anomaly_score": r.anomaly_score, "risk_band": r.risk_band, "reasons": json.dumps(r.reasons),
+             "model_version": STATE["bundle"]["version"], "scored_at": stamp} for r in scored.itertuples()])
+        if save:
+            con.execute(delete(uploads).where(uploads.c.customer_id.in_(new_ids)))
+            con.execute(insert(uploads), [
+                {"customer_id": cid, "dates": json.dumps(day),
+                 "consumption": json.dumps([None if np.isnan(v) else round(float(v), 3) for v in values[i]]),
+                 "uploaded_at": stamp, "uploaded_by": user} for cid, i in zip(new_ids, new)])
+    for cid, i in zip(new_ids, new):
+        STATE["extra"][cid] = {"dates": dates, "values": values[i], "feats": feats.loc[[cid]]}
+    return new_ids
+
+
+def restore_uploads():
+    """Re-score customers uploaded before the last restart (only possible if the database kept them)."""
+    with db() as con:
+        rows = con.execute(select(uploads)).all()
+    for r in rows:
+        dates = pd.DatetimeIndex(json.loads(r.dates))
+        vals = np.array([np.nan if v is None else v for v in json.loads(r.consumption)], dtype=np.float32)[None, :]
+        add_uploaded([r.customer_id], dates, vals, save=False, stamp=r.uploaded_at)
 
 
 def seed_scores():
@@ -196,8 +249,10 @@ async def lifespan(app):
     STATE["bundle"] = load_bundle(MODEL_PATH)
     STATE["demo"] = split_wide(pd.read_csv(DEMO_PATH))
     STATE["demo_index"] = {cid: i for i, cid in enumerate(STATE["demo"][0])}
+    STATE["extra"] = {}
     init_db()
     seed_scores()
+    restore_uploads()
     yield
     STATE["engine"].dispose()
 
@@ -220,9 +275,27 @@ def row_to_dict(r):
 
 
 def known_customer(customer_id):
-    if customer_id not in STATE["demo_index"]:
+    if customer_id not in STATE["demo_index"] and customer_id not in STATE["extra"]:
         raise HTTPException(404, "Customer not found")
     return customer_id
+
+
+def check_customer_access(customer_id, user):
+    """Managers may open any customer; an inspector only customers of cases assigned to them."""
+    known_customer(customer_id)
+    if user["r"] == "inspector":
+        with db() as con:
+            mine = con.execute(select(cases.c.case_id).where(
+                (cases.c.customer_id == customer_id) & (cases.c.inspector == user["u"]))).first()
+        if mine is None:
+            raise HTTPException(403, "This customer is not in your assigned cases")
+
+
+DECIDED = ("theft_confirmed", "normal")
+
+
+def decided_ids(con):
+    return select(cases.c.customer_id).where(cases.c.status.in_(DECIDED))
 
 
 @app.get("/health")
@@ -261,36 +334,46 @@ def stats(user=Depends(current_user)):
         q = q.where(cases.c.inspector == user["u"])  # an inspector only counts their own cases
     with db() as con:
         bands = dict(con.execute(select(risk_scores.c.risk_band, func.count()).group_by(risk_scores.c.risk_band)).all())
+        pending = dict(con.execute(select(risk_scores.c.risk_band, func.count())
+                                   .where(risk_scores.c.customer_id.not_in(decided_ids(con)))
+                                   .group_by(risk_scores.c.risk_band)).all())
         by_status = dict(con.execute(q.group_by(cases.c.status)).all())
-    return {"bands": bands, "cases": by_status, "threshold": STATE["bundle"]["threshold"],
+        n_decided = con.execute(select(func.count(func.distinct(cases.c.customer_id)))
+                                .where(cases.c.status.in_(DECIDED))).scalar()
+    return {"bands": bands, "bands_pending": pending, "decided_customers": n_decided, "cases": by_status,
+            "uploaded_customers": len(STATE["extra"]), "threshold": STATE["bundle"]["threshold"],
             "model_version": STATE["bundle"]["version"]}
 
 
-@app.get("/customers", dependencies=[Depends(check_key)])
-def list_customers(band: Optional[Literal["High", "Medium", "Low"]] = None, limit: int = 100, offset: int = 0):
-    limit = max(1, min(limit, 1000))
+@app.get("/customers", dependencies=[Depends(check_key), Depends(require("manager"))])
+def list_customers(band: Optional[Literal["High", "Medium", "Low"]] = None, limit: int = 100, offset: int = 0,
+                   pending_only: bool = False):
+    """Customers ranked by risk. pending_only=true hides customers whose case already has an outcome."""
+    limit = max(1, min(limit, 5000))
     q = select(risk_scores)
     if band:
         q = q.where(risk_scores.c.risk_band == band)
+    if pending_only:
+        q = q.where(risk_scores.c.customer_id.not_in(decided_ids(None)))
     q = q.order_by(risk_scores.c.risk_score.desc()).limit(limit).offset(max(0, offset))
     with db() as con:
         return [row_to_dict(r) for r in con.execute(q).all()]
 
 
 @app.get("/customers/{customer_id}", dependencies=[Depends(check_key)])
-def get_customer(customer_id: str, user=Depends(current_user)):
-    known_customer(customer_id)
+def get_customer(customer_id: str, user=Depends(require("inspector"))):
+    check_customer_access(customer_id, user)
     q = visible_cases(user).where(cases.c.customer_id == customer_id).order_by(cases.c.case_id.desc())
     with db() as con:
         r = con.execute(select(risk_scores).where(risk_scores.c.customer_id == customer_id)).first()
-        cs = con.execute(q).all() if user else []
-    _, _, dates, values = STATE["demo"]
-    series = values[STATE["demo_index"][customer_id]]
+        cs = con.execute(q).all()
+    dates, series, feats = customer_data(customer_id)
     out = row_to_dict(r)
     out["dates"] = dates.strftime("%Y-%m-%d").tolist()
     out["consumption"] = [None if np.isnan(v) else round(float(v), 3) for v in series]
     out["cases"] = [case_dict(c) for c in cs]
-    out["explanation"] = explain_one(STATE["bundle"], STATE["demo_feats"].loc[[customer_id]])
+    out["explanation"] = explain_one(STATE["bundle"], feats)
+    out["uploaded"] = customer_id in STATE["extra"]
     return out
 
 
@@ -300,14 +383,14 @@ class WhatIf(BaseModel):
 
 
 @app.post("/whatif", dependencies=[Depends(check_key)])
-def what_if(body: WhatIf):
+def what_if(body: WhatIf, user=Depends(require("inspector"))):
     """Re-score a customer after changing some of its feature values (the model is not changed)."""
-    known_customer(body.customer_id)
+    check_customer_access(body.customer_id, user)
     unknown = set(body.changes) - set(FEATURE_NAMES)
     if unknown:
         raise HTTPException(422, f"Unknown features: {sorted(unknown)}")
     b = STATE["bundle"]
-    original = STATE["demo_feats"].loc[[body.customer_id]]
+    original = customer_data(body.customer_id)[2]
     edited = original.copy()
     for f, v in body.changes.items():
         edited[f] = np.float32(v)
@@ -323,30 +406,35 @@ def what_if(body: WhatIf):
 
 
 @app.get("/customers/{customer_id}/similar", dependencies=[Depends(check_key)])
-def similar_customers(customer_id: str, k: int = 5):
+def similar_customers(customer_id: str, k: int = 5, user=Depends(require("inspector"))):
     """Nearest demo customers in (log-scaled, standardised) feature space."""
-    known_customer(customer_id)
+    check_customer_access(customer_id, user)
     k = max(1, min(k, 20))
     ids, _, dates, values = STATE["demo"]
     z = STATE["demo_z"]
-    i = STATE["demo_index"][customer_id]
-    dist = np.sqrt(((z - z[i]) ** 2).sum(axis=1))
-    dist[i] = np.inf
+    c_dates, c_values, c_feats = customer_data(customer_id)
+    f = c_feats.to_numpy()[0]
+    zc = (np.sign(f) * np.log1p(np.abs(f)) - STATE["bundle"]["sim_mean"]) / STATE["bundle"]["sim_std"]
+    dist = np.sqrt(((z - zc) ** 2).sum(axis=1))
+    if customer_id in STATE["demo_index"]:
+        dist[STATE["demo_index"][customer_id]] = np.inf
     nearest = np.argsort(dist)[:k]
     with db() as con:
         rows = {r.customer_id: r for r in con.execute(
             select(risk_scores).where(risk_scores.c.customer_id.in_([ids[j] for j in nearest]))).all()}
-    monthly = nan_monthly_means(values[np.r_[i, nearest]], dates)
+    monthly = nan_monthly_means(values[nearest], dates)
     months = dates.to_period("M").unique().astype(str).tolist()
+    own = nan_monthly_means(c_values[None, :], c_dates)[0]
+    own = pd.Series(own, index=c_dates.to_period("M").unique().astype(str)).reindex(months).to_numpy()
     clean = lambda row: [None if np.isnan(v) else round(float(v), 3) for v in row]
-    return {"months": months, "customer_monthly": clean(monthly[0]),
+    return {"months": months, "customer_monthly": clean(own),
             "similar": [{"customer_id": ids[j], "distance": round(float(dist[j]), 3),
                          "risk_score": rows[ids[j]].risk_score, "risk_band": rows[ids[j]].risk_band,
-                         "monthly": clean(monthly[n + 1])} for n, j in enumerate(nearest)]}
+                         "monthly": clean(monthly[n])} for n, j in enumerate(nearest)]}
 
 
 @app.post("/predict", dependencies=[Depends(check_key), Depends(require("manager"))])
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...), user=Depends(require("manager"))):
     """Score a CSV: long format (customer_id, date, consumption) or SGCC wide format.
     Also returns a drift report: how different the uploaded customers are from the training data."""
     raw = await file.read()
@@ -362,7 +450,9 @@ async def predict(file: UploadFile = File(...)):
         raise HTTPException(422, "Need at least 30 days of readings per customer")
     feats = compute_features(values, dates)
     scored = score_features(STATE["bundle"], feats, ids)
+    added = add_uploaded(ids, dates, values, user=user["u"])
     return {"model_version": STATE["bundle"]["version"], "days": len(dates),
+            "added_to_dashboard": len(added), "already_in_system": int(len(ids) - len(added)),
             "results": scored.sort_values("risk_score", ascending=False).to_dict("records"),
             "drift": drift_report(STATE["bundle"], feats)}
 
@@ -443,14 +533,12 @@ def list_cases(status: Optional[str] = None, user=Depends(require("inspector")))
 
 
 @app.post("/cases", status_code=201, dependencies=[Depends(check_key)])
-def create_case(body: CaseCreate, user=Depends(require("inspector"))):
+def create_case(body: CaseCreate, user=Depends(require("manager"))):
+    """Only a manager opens a case, and always assigns it to an inspector."""
     known_customer(body.customer_id)
-    if user["r"] == "inspector":
-        assignee = user["u"]  # an inspector can only open cases for themselves
-    else:
-        assignee = body.inspector
-        if assignee not in INSPECTORS:
-            raise HTTPException(422, f"Assign the case to an inspector: {', '.join(INSPECTORS)}")
+    assignee = body.inspector
+    if assignee not in INSPECTORS:
+        raise HTTPException(422, f"Assign the case to an inspector: {', '.join(INSPECTORS)}")
     stamp = now()
     with db() as con:
         case_id = con.execute(insert(cases).values(
