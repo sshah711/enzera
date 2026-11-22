@@ -183,7 +183,7 @@ def risk_card(cid, risk, band, anomaly, threshold, probability=None):
     prob_tile = "" if probability is None else (
         f'<div class="kpi" style="border-top-color:#0EA5E9"><div class="label">Estimated probability</div>'
         f'<div class="value">{probability:.0%}</div><div class="meter"><span style="width:{probability * 100:.1f}%;'
-        f'background:#0EA5E9"></span></div><div class="sub">calibrated on validation data</div></div>')
+        f'background:#0EA5E9"></span></div></div>')
     html(f"""<div class="card">
 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:.6rem;align-items:center">
   <div><div style="font-size:.78rem;color:#64748B;font-weight:600">CUSTOMER</div>
@@ -192,9 +192,9 @@ def risk_card(cid, risk, band, anomaly, threshold, probability=None):
 </div>
 <div class="kpi-grid" style="margin:1rem 0 .2rem">
   <div class="kpi" style="border-top-color:{BAND_COLOR.get(band)}"><div class="label">Theft risk</div><div class="value">{risk:.2f}</div>
-    <div class="meter"><span style="width:{risk * 100:.1f}%"></span></div><div class="sub">High-risk threshold {threshold:.2f}</div></div>
+    <div class="meter"><span style="width:{risk * 100:.1f}%"></span></div></div>
   <div class="kpi" style="border-top-color:#7C3AED"><div class="label">Anomaly score</div><div class="value">{anomaly:.2f}</div>
-    <div class="meter"><span style="width:{anomaly * 100:.1f}%;background:#7C3AED"></span></div><div class="sub">Isolation Forest (unsupervised)</div></div>
+    <div class="meter"><span style="width:{anomaly * 100:.1f}%;background:#7C3AED"></span></div></div>
   {prob_tile}
 </div></div>""")
 
@@ -287,4 +287,4 @@ def profile_card(username, role, p):
     html(f'<div class="profile"><div class="top"><div class="avatar" style="background:{color}">{escape(initials)}</div>'
          f'<div><div class="n">{escape(name)}</div><div class="t">{escape(p.get("title", ""))}</div>'
          f'<span class="role" style="background:{color}33;border:1px solid {color}">{escape(role)}</span></div></div>'
-         f'<dl>{dl}</dl><div class="can">Can: {escape(can)}</div></div>')
+         f'<dl>{dl}</dl></div>')

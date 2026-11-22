@@ -292,30 +292,6 @@ elif page == "Customer detail":
             ui.reason_cards(c["reasons"])
         else:
             st.info("No feature pushes this customer towards theft.")
-        e = c["explanation"]
-        top_n = e["contributions"][:10]
-        rest = sum(x["impact"] for x in e["contributions"][10:])
-        steps = [{"step": "Base value (average customer)", "delta": e["base_value"]}] + \
-                [{"step": f"{x['label']} = {x['value']}", "delta": x["impact"]} for x in top_n] + \
-                [{"step": f"{len(e['contributions']) - 10} other features", "delta": rest}]
-        wf = pd.DataFrame(steps)
-        wf["end"] = wf["delta"].cumsum()
-        wf["start"] = wf["end"] - wf["delta"]
-        wf["effect"] = ["base"] + ["raises risk" if d > 0 else "lowers risk" for d in wf["delta"][1:]]
-        wf["order"] = range(len(wf))
-        chart = alt.Chart(wf).mark_bar(cornerRadius=3).encode(
-            y=alt.Y("step:N", sort=alt.SortField("order"), title=None, axis=alt.Axis(labelLimit=320)),
-            x=alt.X("start:Q", title="Model output (log-odds)"), x2="end:Q",
-            color=alt.Color("effect:N", scale=alt.Scale(domain=["base", "raises risk", "lowers risk"],
-                                                        range=["#94A3B8", "#DC2626", "#16A34A"]),
-                            legend=alt.Legend(title=None, orient="top")),
-            tooltip=["step", alt.Tooltip("delta:Q", format="+.3f", title="contribution")]
-        ).properties(height=36 * len(wf))
-        rule = alt.Chart(pd.DataFrame({"x": [e["log_odds"]]})).mark_rule(strokeDash=[4, 3], color="#0F172A").encode(x="x:Q")
-        st.altair_chart(chart + rule, use_container_width=True)
-        st.caption(f"Base value {e['base_value']:+.2f} + all contributions = {e['log_odds']:+.2f} log-odds "
-                   f"→ risk score 1 / (1 + e^-({e['log_odds']:.2f})) = **{c['risk_score']:.2f}**. "
-                   "Red bars push towards theft, green bars away from it.")
 
     with t_whatif:
         st.write("Change this customer's feature values and see how the model's score reacts. "
@@ -459,8 +435,7 @@ elif page == "Inspection planner":
 # ---------------------------------------------------------------- cases
 elif page == "Inspection cases":
     if role() == "manager":
-        ui.hero("Inspection cases", "Every inspection case across all inspectors, from open to outcome, with a full "
-                "audit trail. Confirmed outcomes become new labelled data for retraining the model.", tag="Workflow")
+        ui.hero("Inspection cases", "", tag="Workflow")
     else:
         ui.hero("My inspection cases", "The visits assigned to you. Add what you found on site; your manager records "
                 "the final outcome.", tag="Workflow")
